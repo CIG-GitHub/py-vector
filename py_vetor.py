@@ -1,0 +1,1015 @@
+import operator
+import warnings
+
+
+
+def slice_length(s: slice, sequence_length: int) -> int:
+	"""
+	Calculates the length of a slice given the slice object and the sequence length.
+
+	Args:
+		s: The slice object.
+		sequence_length: The length of the sequence being sliced.
+
+	Returns:
+		The length of the slice.
+	"""
+	start, stop, step = s.indices(sequence_length)
+	return max(0, (stop - start + (step - (1 if step > 0 else -1))) // step)
+
+
+def _format_col():
+	pass
+
+
+class PyVector():
+	""" Iterable vector with optional type safety """
+	_dtype = None
+	_typesafe = None
+	_default = None
+	_underlying = None
+	_name = None
+
+
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		""" Decide what type of PyVector this is """
+		if initial and all(isinstance(x, PyVector) for x in initial):
+			if len({len(x) for x in initial}) == 1:
+				return PyTable(initial=initial,
+					default_element=default_element,
+					dtype=dtype,
+					typesafe=typesafe,
+					name=name)
+			warnings.warn('Passing vectors of length will not produce a table.')
+		return super(PyVector, cls).__new__(cls)
+
+
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		""" Create a new PyVector from an initial list """
+		self._typesafe = typesafe
+		self._dtype = dtype
+		self._name = name or 'Unnamed'
+
+		if not isinstance(initial, (list, tuple)) and default_element is None:
+			# if they pass a non-list type into "initial" and do not specify a default
+			# assume an default is the item passed and they want an empty vector of it
+			default_element = initial
+			initial = ()
+			self._underlying = ()
+		self._default = default_element
+
+		if self._typesafe and default_element is not None:
+			assert isinstance(default_element, dtype)
+
+		# If the initial item is not a list
+		if not isinstance(initial, (list, tuple)):
+			raise TypeError('Initial value must be a list.')
+
+		if initial: # Know it's a list with at least one item.
+			init_dtypes = {type(x) for x in initial}
+			if dtype:
+				init_dtypes.add(dtype)
+			if len(init_dtypes) == 1:
+				self._dtype = init_dtypes.pop()
+			elif init_dtypes == {float, int} and self._dtype is not int:
+				# if we specify int, cannot convert to float. Otherwise, convert ints to float
+				self._dtype = float
+			else:
+				assert not typesafe
+				self._dtype = None
+
+		self._underlying = tuple(float(x) if self._typesafe and self._dtype == float else x for x in initial)
+
+
+	@classmethod
+	def new(cls, default_element, length, typesafe=False):
+		""" create a new, initialized vector of length * default_element"""
+		if length:
+			assert isinstance(length, int)
+			return cls([default_element for _ in range(length)], dtype=type(default_element), typesafe=typesafe)
+		return cls(default_element=default_element, dtype=type(default_element), typesafe=typesafe)
+
+
+	def __repr__(self):
+		if len(self) == 0:
+			return '[]'
+		elif len(self) <= 10:
+			return '[\n  ' + ',\n  '.join([str(x) for x in self._underlying]) + '\n]'
+		return '[\n  ' + ',\n  '.join([str(x) for x in self._underlying[:5]]) + \
+		 ',\n  ...\n  ' + ',\n  '.join([str(x) for x in self._underlying[-5:]]) + '\n]'
+
+
+	def __iter__(self):
+		return iter(self._underlying)
+		#current = 0
+		#while current < len(self):
+		#	yield self._underlying[current]
+		#	current += 1
+
+
+	def __len__(self):
+		return len(self._underlying)
+
+
+	def __getitem__(self, key):
+		""" Get item(s) from self. Behavior varies by input type:
+		The following return a PyVector:
+			# PyVector of bool: Logical indexing (masking). Get all items where the boolean is True
+			# List where every element is a bool. See PyVector of bool
+			# Slice: return the array elements of the slice.
+
+		Special: Indexing a single index returns a value
+			# Int: 
+		"""
+		if isinstance(key, int):
+			# Effectively a different input type (single not a list). Returning a value, not a vector.
+			return self._underlying[key]
+
+		key = self._check_duplicate(key)
+		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
+			assert (len(self) == len(key))
+			return PyVector([x for x, y in zip(self, key, strict=True) if y],
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+		if isinstance(key, list) and {type(e) for e in key} == {bool}:
+			assert (len(self) == len(key))
+			return PyVector([x for x, y in zip(self, key, strict=True) if y],
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+		if isinstance(key, slice):
+			return PyVector(self._underlying[key], 
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+
+		# NOT RECOMMENDED
+		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
+			if len(self) > 1000:
+				warnings.warn('Subscript indexing is sub-optimal for large vectors')
+			return PyVector([self[x] for x in key],
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+
+		# NOT RECOMMENDED
+		if isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
+			if len(self) > 1000:
+				warnings.warn('Subscript indexing is sub-optimal for large vectors')
+			return PyVector([self[x] for x in key],
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+		raise TypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
+
+
+	def __setitem__(self, key, value):
+		"""
+		Set the item at the specified index (key) with the provided value.
+		Supports boolean indexing, slicing, and standard indexing.
+		
+		- If key is a boolean mask, assigns values where True.
+		- If key is a slice, assigns values in the slice.
+		- Handles type safety through PyVector, and ensures lengths match when necessary.
+		"""
+		# Perform duplicate checks on key and value, assuming self._check_duplicate handles it.
+		key = self._check_duplicate(key)
+		value = self._check_duplicate(value)
+		
+		# Handle boolean vector or list as key
+		if (isinstance(key, PyVector) and key._dtype == bool and key._typesafe) \
+			or (isinstance(key, list) and {type(e) for e in key} == {bool}):
+			
+			# Ensure the key (mask) is the same length as the current vector
+			assert len(self) == len(key), "Boolean mask length must match vector length."
+
+			# If value is an iterable, ensure its length matches the number of True elements in key
+			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
+				assert sum(key) == len(value), "Iterable length must match the number of True elements in the mask."
+				
+				# Replace based on mask (True/False positions)
+				iter_v = iter(value)
+				new_vector = PyVector(
+					tuple(next(iter_v) if t else x for x, t in zip(self._underlying, key)),
+					default_element=self._default,
+					dtype=self._dtype,
+					typesafe=self._typesafe
+				)
+			else:
+				# Replace all True positions with the same value
+				new_vector = PyVector(
+					tuple(value if t else x for x, t in zip(self._underlying, key)),
+					default_element=self._default,
+					dtype=self._dtype,
+					typesafe=self._typesafe
+				)
+			
+			# Update the underlying data
+			self._underlying = new_vector._underlying
+			self._dtype = new_vector._dtype
+			return
+
+		# Handle slice assignment
+		if isinstance(key, slice):
+			# Ensure that if value is an iterable, its length matches the slice length
+			slice_len = slice_length(key, len(self))
+			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
+				if slice_len != len(value):
+					raise ValueError("Slice length and value length must be the same.")
+			else:
+				# need an iterable of the same length as the slice
+				value = [value for _ in range(slice_len)]
+
+			# Assign values in the slice
+			tuple_as_list = list(self._underlying)
+			tuple_as_list[key] = value
+			
+			# Create a new PyVector to handle type safety and consistency
+			new_vector = PyVector(
+				tuple(tuple_as_list),
+				default_element=self._default,
+				dtype=self._dtype,
+				typesafe=self._typesafe
+			)
+			
+			# Update the underlying data
+			self._underlying = new_vector._underlying
+			self._dtype = new_vector._dtype
+			return
+
+		# Single integer index assignment
+		if isinstance(key, int):
+			# Ensure the index is valid
+			if not (0 <= key < len(self)):
+				raise IndexError(f"Index {key} is out of bounds for vector of length {len(self)}")
+			tuple_as_list = list(self._underlying)
+			tuple_as_list[key] = value
+
+			 # Create a new PyVector to handle type safety and consistency
+			new_vector = PyVector(
+				tuple(tuple_as_list),
+				default_element=self._default,
+				dtype=self._dtype,
+				typesafe=self._typesafe
+			)
+			
+			# Update the underlying data
+			self._underlying = new_vector._underlying
+			self._dtype = new_vector._dtype
+			return
+
+		# Subscript indexing with PyVector of integers
+		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
+			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
+				if len(key) != len(value):
+					raise ValueError("Number of indices must match the length of values.")
+				tuple_as_list = list(self._underlying)
+				for idx, val in zip(key, value):
+					tuple_as_list[idx] = val
+			else:
+				tuple_as_list = list(self._underlying)
+				for idx in key:
+					tuple_as_list[idx] = value
+			new_vector = PyVector(
+				tuple(tuple_as_list),
+				default_element=self._default,
+				dtype=self._dtype,
+				typesafe=self._typesafe
+			)
+			
+			# Update the underlying data
+			self._underlying = new_vector._underlying
+			self._dtype = new_vector._dtype
+			return
+
+		# List or tuple of integers
+		if isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
+			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
+				if len(key) != len(value):
+					raise ValueError("Number of indices must match the length of values.")
+				tuple_as_list = list(self._underlying)
+				for idx, val in zip(key, value):
+					tuple_as_list[idx] = val
+			else:
+				tuple_as_list = list(self._underlying)
+				for idx in key:
+					tuple_as_list[idx] = value
+			new_vector = PyVector(
+				tuple(tuple_as_list),
+				default_element=self._default,
+				dtype=self._dtype,
+				typesafe=self._typesafe
+			)
+			
+			# Update the underlying data
+			self._underlying = new_vector._underlying
+			self._dtype = new_vector._dtype
+			return
+
+		# If none of the cases match, raise a TypeError
+		raise TypeError(f"Invalid key type: {type(key)}. Must be boolean vector, integer vector, slice, or single index.")
+
+
+	""" Comparison Operators - equality and hashing
+		# __eq__ ==
+		# __ge__ >=
+		# __gt__ >
+		# __lt__ <
+		# __le__ <=
+		# __ne__ !=
+	"""
+	def _elementwise_compare(self, other, op):
+		other = self._check_duplicate(other)
+		if isinstance(other, PyVector) or hasattr(other, '__iter__'):
+			# Raise mismatched lengths
+			assert len(self) == len(other)
+			# Unfortunately have to override np.bool_ pollution
+			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), False, bool, True)
+		return PyVector(tuple(bool(op(x, other)) for x in self), False, bool, True)
+
+	# Now, we can redefine the comparison methods using the helper function
+
+	def __eq__(self, other):
+		return self._elementwise_compare(other, operator.eq)
+
+	def __ge__(self, other):
+		return self._elementwise_compare(other, operator.ge)
+
+	def __gt__(self, other):
+		return self._elementwise_compare(other, operator.gt)
+
+	def __le__(self, other):
+		return self._elementwise_compare(other, operator.le)
+
+	def __lt__(self, other):
+		return self._elementwise_compare(other, operator.lt)
+
+	def __ne__(self, other):
+		return self._elementwise_compare(other, operator.ne)
+
+	def __and__(self, other):
+		return self._elementwise_compare(other, operator.and_)
+
+	def __or__(self, other):
+		return self._elementwise_compare(other, operator.or_)
+
+	def __xor__(self, other):
+		return self._elementwise_compare(other, operator.xor)
+
+	def __rand__(self, other):
+		return self._elementwise_compare(other, operator.and_)
+
+	def __ror__(self, other):
+		return self._elementwise_compare(other, operator.or_)
+
+	def __rxor__(self, other):
+		return self._elementwise_compare(other, operator.xor)
+
+
+	""" Math operations """
+
+	def _elementwise_operation(self, other, op_func, op_name: str, op_symbol: str):
+		"""Helper function to handle element-wise operations with broadcasting."""
+		other = self._check_duplicate(other)
+		if isinstance(other, PyVector):
+			assert len(self) == len(other)
+			if self._typesafe:
+				other._promote(self._dtype)
+			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
+							default_element=(op_func(self._default, other._default) if self._default is not None and other._default is not None else None),
+							dtype=self._dtype if self._typesafe else None,
+							typesafe=self._typesafe)
+
+		if isinstance(other, self._dtype or object) or self._check_native_typesafe(other):
+			return PyVector(tuple(op_func(x, other) for x in self),
+							default_element=(op_func(self._default,  other) if self._default is not None else None),
+							dtype=self._dtype if self._typesafe else None,
+							typesafe=self._typesafe)
+
+		if hasattr(other, '__iter__'):
+			assert len(self) == len(other)
+			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)), self._default, self._dtype, self._typesafe)
+
+		raise TypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+
+	def __add__(self, other):
+		return self._elementwise_operation(other, operator.add, '__add__', '+')
+
+	def __mul__(self, other):
+		return self._elementwise_operation(other, operator.mul, '__mul__', '*')
+
+	def __sub__(self, other):
+		return self._elementwise_operation(other, operator.sub, '__sub__', '-')
+
+	def __truediv__(self, other):
+		return self._elementwise_operation(other, operator.truediv, '__truediv__', '/')
+
+	def __floordiv__(self, other):
+		return self._elementwise_operation(other, operator.floordiv, '__floordiv__', '//')
+
+	def __mod__(self, other):
+		return self._elementwise_operation(other, operator.mod, '__mod__', '%')
+
+	def __pow__(self, other):
+		return self._elementwise_operation(other, operator.pow, '__pow__', '**')
+
+	def __radd__(self, other):
+		return self.__add__(other)
+
+	def __rmul__(self, other):
+		return self.__mul__(other)
+
+	def __rsub__(self, other):
+		return self._elementwise_operation(other, lambda y, x: x - y, '__rsub__', '-')
+
+	def __rtruediv__(self, other):
+		return self._elementwise_operation(other, lambda y, x: x / y, '__rtruediv__', '/')
+
+	def __rfloordiv__(self, other):
+		return self._elementwise_operation(other, lambda y, x: x // y, '__rfloordiv__', '//')
+
+	def __rmod__(self, other):
+		return self._elementwise_operation(other, lambda y, x: x % y, '__rmod__', '%')
+
+	def __rpow__(self, other):
+		return self._elementwise_operation(other, lambda y, x: x ** y, '__rpow__', '**')
+
+
+	def _promote(self, new_dtype):
+		""" Check if a vector can change data type (int -> float, float -> complex) """
+		if self._dtype == new_dtype:
+			return
+		if self._typesafe:
+			raise TypeError(f'Cannot convert typesafe PyVector from {self._dtype.__name__} to {new_dtype.__name__}.')
+		if new_dtype == float and self._dtype == int:
+			self._underlying = [float(x) for x in self._underlying]
+			self._dtype = float
+		if new_dtype == complex and self._dtype in (int, float):
+			self._underlying = [complex(x) for x in self._underlying]
+			self._dtype = complex
+		return
+
+
+	def cols(self):
+		return iter(self._underlying)
+
+	def __hash__(self):
+		return hash((
+			self._dtype,
+			self._typesafe,
+			self._default,
+			self._underlying,
+			self._name))
+
+
+	def _check_duplicate(self, other):
+		if id(self) == id(other):
+			# If the object references match, we need to copy other
+			return PyVector([x for x in other], other._default, other._dtype, other._typesafe)
+		return other
+
+
+	def _check_native_typesafe(self, other):
+		""" Ensure native type conversions (python) will not affect underlying type """
+		if not self._dtype:
+			return True
+		if self._dtype == type(other):
+			return True
+		if self._dtype == PyVector:
+			return True
+		if not (self._typesafe or hasattr(other, '__iter__')):
+			return True
+		if self._dtype == float and type(other) == int:
+			return True
+		if self._dtype == complex and type(other) in (int, float):
+			return True
+		return False
+
+
+	def __matmul__(self, other):
+
+		other = self._check_duplicate(other)
+		
+		if isinstance(other, PyVector) and other._dtype == PyVector:
+			return PyVector([self @ z for z in other._underlying])
+		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
+		"""
+		other = self._check_duplicate(other)
+		if isinstance(other, PyVector):
+			# Raise mismatched lengths
+			return PyVector(sum([x * y for x, y in zip(self._underlying, other._underlying, strict=True)]),
+				dtype = self._dtype,
+				typesafe = self._typesafe)
+		if hasattr(other, '__iter__'):
+			# Raise mismatched lengths
+			return PyVector([sum([x * y for x, y in zip(self._underlying, other, strict=True)])],
+				dtype = self._dtype,
+				typesafe = self._typesafe)
+
+		if self._check_native_typesafe(other):
+			return PyVector([x * other for x in self],
+				self._default + other if self._default is not None else None,
+				self._dtype,
+				self._typesafe)
+		"""
+
+		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+
+
+	def __rmatmul__(self, other):
+		other = self._check_duplicate(other)
+		if hasattr(other, '__iter__'):
+			# Raise mismatched lengths
+			assert len(self) == len(other)
+			return PyVector([sum([x @ y for x, y in zip(other, z, strict=True)]) for z in self],
+				dtype = self._dtype,
+				typesafe = self._typesafe)
+
+		if self._check_native_typesafe(other):
+			return PyVector([x * other for x in self],
+				self._default + other if self._default is not None else None,
+				self._dtype,
+				self._typesafe)
+
+		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+
+
+	def __bool__(self):
+		""" We expect the behavior to mimic that of an empty list or string
+		namely, if the underlying list (tuple) is empty, we return False, otherwise return True.
+
+		The rationale here is that even a typed empty list is empty. Even a typed empty list with
+		a default value is empty.
+		"""
+		if self._dtype == bool and self._typesafe:
+			warnings.warn(f"For element-by-element operations use (&, |, ~) instead of 'and', 'or', 'not' keywords.")
+		if self._underlying:
+			return True
+		return False
+
+	def __lshift__(self, other):
+		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
+		"""
+
+		if isinstance(other, PyVector):
+			if self._typesafe and other._typesafe and self._dtype != other._dtype:
+				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+			# complicated typesafety rules here - what if a whole bunch of things.
+			return PyVector(self._underlying + other._underlying,
+				self._default, # self does not inherit other's default element
+				self._dtype or other._dtype,
+				self._typesafe or other._typesafe)
+		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+			return PyVector(self._underlying + tuple(x for x in other),
+				self._default, # self does not inherit other's default element
+				self._dtype,
+				self._typesafe)
+		return PyVector(self._underlying + tuple(other,),
+				self._default, # self does not inherit other's default element
+				self._dtype,
+				self._typesafe)
+
+
+class PyTable(PyVector):
+	""" Multiple columns of the same length """
+	_length = None
+	
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		return super(PyVector, cls).__new__(cls)
+
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		self._length = len(initial[0]) if initial else 0
+		return super().__init__(initial, default_element=default_element, dtype=dtype, typesafe=typesafe, name=name)
+
+	def __len__(self):
+		return self._length
+
+	def __getitem__(self, key):
+		key = self._check_duplicate(key)
+		if isinstance(key, int):
+			# Effectively a different input type (single not a list). Returning a value, not a vector.
+			return PyVector(tuple(col[key] for col in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+
+		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
+			assert (len(self) == len(key))
+			return PyVector(tuple(x[key] for x in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+		if isinstance(key, list) and {type(e) for e in key} == {bool}:
+			assert (len(self) == len(key))
+			return PyVector(tuple(x[key] for x in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+		if isinstance(key, slice):
+			return PyVector(tuple(x[key] for x in self._underlying), 
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+
+		# NOT RECOMMENDED
+		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
+			if len(self) > 1000:
+				warnings.warn('Subscript indexing is sub-optimal for large vectors')
+			return PyVector(tuple(x[key] for x in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+
+	def __iter__(self):
+		current = 0
+		while current < len(self):
+			yield self[current]
+			current += 1
+
+	"""
+	def __matmul__(self, other):
+		other = self._check_duplicate(other)
+		if hasattr(other, '__iter__'):
+			# Raise mismatched lengths
+			if isinstance(other, (PyVector, PyTable)):
+				assert len(self._underlying) == len(other._underlying)
+				return PyVector([sum([x @ y for x, y in zip(self._underlying, z, strict=True)]) for z in other._underlying],
+					dtype = self._dtype,
+					typesafe = self._typesafe)
+			return PyVector([sum([x @ y for x, y in zip(self._underlying, z, strict=True)]) for z in other],
+				dtype = self._dtype,
+				typesafe = self._typesafe)
+
+		if self._check_native_typesafe(other):
+			return PyVector([x * other for x in self._underlying],
+				self._default + other if self._default is not None else None,
+				self._dtype,
+				self._typesafe)
+
+		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+	"""
+
+class _PyFloat(PyVector):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		return super(PyVector, cls).__new__(cls)
+
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		return super().__init__(initial, default_element=default_element, dtype=float, typesafe=typesafe, name=name)
+
+	def __getattr__(self, name):
+		""" get float attributes first (numerator, denominator, real, etc.) """
+		if hasattr(float, name):
+			return PyVector(tuple(s.__getattr__(name) for s in self._underlying))
+		return super().__getattr__(name)
+
+	def __setattr__(self, name, value):
+		""" attempt to set float attributes before PyVector attributes
+		this ording is mainly to prevent attribute name collisions with float attributes"""
+		if hasattr(float, name):
+			return PyVector(tuple(s.__setattr__(name, value) for s in self._underlying))
+		return super().__setattr__(name, value)
+
+	def __delattr__(self, name):
+		""" attempt to remove float attributes before PyVector attributes """
+		if hasattr(float, name):
+			return PyVector(tuple(s.__delattr__(name) for s in self._underlying))
+		return super().__delattr__(name)
+
+	def as_integer_ratio(self, *args, **kwargs):
+		""" Call the as_integer_ratio method on float """
+		return PyVector(tuple(s.as_integer_ratio() for s in self._underlying))
+
+	def conjugate(self, *args, **kwargs):
+		""" Call the conjugate method on float """
+		return PyVector(tuple(s.conjugate() for s in self._underlying))
+
+	def fromhex(self, *args, **kwargs):
+		""" Call the fromhex method on float """
+		return PyVector(tuple(s.fromhex() for s in self._underlying))
+
+	def hex(self, *args, **kwargs):
+		""" Call the hex method on float """
+		return PyVector(tuple(s.hex() for s in self._underlying))
+
+	def is_integer(self, *args, **kwargs):
+		""" Call the is_integer method on float """
+		return PyVector(tuple(s.is_integer() for s in self._underlying))
+
+
+
+class _PyInt(PyVector, int):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		return super(PyVector, cls).__new__(cls)
+
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		return super().__init__(initial, default_element=default_element, dtype=int, typesafe=typesafe, name=name)
+
+	def __getattr__(self, name):
+		""" get integer attributes first (numerator, denominator, real, etc.) """
+		if hasattr(int, name):
+			return PyVector(tuple(s.__getattr__(name) for s in self._underlying))
+		return super().__getattr__(name)
+
+	def __setattr__(self, name, value):
+		""" attempt to set integer attributes before PyVector attributes
+		this ording is mainly to prevent attribute name collisions with integer attributes"""
+		if hasattr(int, name):
+			return PyVector(tuple(s.__setattr__(name, value) for s in self._underlying))
+		return super().__setattr__(name, value)
+
+	def __delattr__(self, name):
+		""" attempt to remove integer attributes before PyVector attributes """
+		if hasattr(int, name):
+			return PyVector(tuple(s.__delattr__(name) for s in self._underlying))
+		return super().__delattr__(name)
+
+	def as_integer_ratio(self, *args, **kwargs):
+		""" Call the as_integer_ratio method on int """
+		return PyVector(tuple(s.as_integer_ratio() for s in self._underlying))
+
+	def conjugate(self, *args, **kwargs):
+		""" Call the conjugate method on int """
+		return PyVector(tuple(s.conjugate() for s in self._underlying))
+
+	def bit_count(self, *args, **kwargs):
+		""" Call the bit_count method on int """
+		return PyVector(tuple(s.bit_count() for s in self._underlying))
+
+	def bit_length(self, *args, **kwargs):
+		""" Call the bit_length method on int """
+		return PyVector(tuple(s.bit_length() for s in self._underlying))
+
+	def fromhex(self, *args, **kwargs):
+		""" Call the fromhex method on int """
+		return PyVector(tuple(s.fromhex() for s in self._underlying))
+
+	def hex(self, *args, **kwargs):
+		""" Call the hex method on int """
+		return PyVector(tuple(s.hex() for s in self._underlying))
+
+	def is_integer(self, *args, **kwargs):
+		""" Call the is_integer method on int """
+		return PyVector(tuple(s.is_integer() for s in self._underlying))
+
+	def to_bytes(self, *args, **kwargs):
+		""" Call the to_bytes method on int """
+		return PyVector(tuple(s.to_bytes() for s in self._underlying))
+
+
+class _PyString(PyVector, str):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		return super(PyVector, cls).__new__(cls)
+
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+		return super().__init__(initial, default_element=default_element, dtype=str, typesafe=typesafe, name=name)
+
+	def capitalize(self):
+		""" Call the internal capitalize method on string """
+		return PyVector(tuple(s.capitalize() for s in self._underlying))
+
+	def casefold(self):
+		""" Call the internal casefold method on string """
+		return PyVector(tuple(s.casefold() for s in self._underlying))
+
+	def center(self, *args, **kwargs):
+		""" Call the internal center method on string """
+		return PyVector(tuple(s.center(*args, **kwargs) for s in self._underlying))
+
+	def count(self, *args, **kwargs):
+		""" Call the internal count method on string """
+		return PyVector(tuple(s.count(*args, **kwargs) for s in self._underlying))
+
+	def encode(self, *args, **kwargs):
+		""" Call the internal encode method on string """
+		return PyVector(tuple(s.encode(*args, **kwargs) for s in self._underlying))
+
+	def endswith(self, *args, **kwargs):
+		""" Call the internal endswith method on string """
+		return PyVector(tuple(s.endswith(*args, **kwargs) for s in self._underlying))
+
+	def expandtabs(self, *args, **kwargs):
+		""" Call the internal expandtabs method on string """
+		return PyVector(tuple(s.expandtabs(*args, **kwargs) for s in self._underlying))
+
+	def find(self, *args, **kwargs):
+		""" Call the internal find method on string """
+		return PyVector(tuple(s.find(*args, **kwargs) for s in self._underlying))
+
+	def format(self, *args, **kwargs):
+		""" Call the internal format method on string """
+		return PyVector(tuple(s.format(*args, **kwargs) for s in self._underlying))
+
+	def format_map(self, *args, **kwargs):
+		""" Call the internal format_map method on string """
+		return PyVector(tuple(s.format_map(*args, **kwargs) for s in self._underlying))
+
+	def index(self, *args, **kwargs):
+		""" Call the internal index method on string """
+		return PyVector(tuple(s.index(*args, **kwargs) for s in self._underlying))
+
+	def isalnum(self, *args, **kwargs):
+		""" Call the internal isalnum method on string """
+		return PyVector(tuple(s.isalnum(*args, **kwargs) for s in self._underlying))
+
+	def isalpha(self, *args, **kwargs):
+		""" Call the internal isalpha method on string """
+		return PyVector(tuple(s.isalpha(*args, **kwargs) for s in self._underlying))
+
+	def isascii(self, *args, **kwargs):
+		""" Call the internal isascii method on string """
+		return PyVector(tuple(s.isascii(*args, **kwargs) for s in self._underlying))
+
+	def isdecimal(self, *args, **kwargs):
+		""" Call the internal isdecimal method on string """
+		return PyVector(tuple(s.isdecimal(*args, **kwargs) for s in self._underlying))
+
+	def isdigit(self, *args, **kwargs):
+		""" Call the internal isdigit method on string """
+		return PyVector(tuple(s.isdigit(*args, **kwargs) for s in self._underlying))
+
+	def isidentifier(self, *args, **kwargs):
+		""" Call the internal isidentifier method on string """
+		return PyVector(tuple(s.isidentifier(*args, **kwargs) for s in self._underlying))
+
+	def islower(self, *args, **kwargs):
+		""" Call the internal islower method on string """
+		return PyVector(tuple(s.islower(*args, **kwargs) for s in self._underlying))
+
+	def isnumeric(self, *args, **kwargs):
+		""" Call the internal isnumeric method on string """
+		return PyVector(tuple(s.isnumeric(*args, **kwargs) for s in self._underlying))
+
+	def isprintable(self, *args, **kwargs):
+		""" Call the internal isprintable method on string """
+		return PyVector(tuple(s.isprintable(*args, **kwargs) for s in self._underlying))
+
+	def isspace(self, *args, **kwargs):
+		""" Call the internal isspace method on string """
+		return PyVector(tuple(s.isspace(*args, **kwargs) for s in self._underlying))
+
+	def istitle(self, *args, **kwargs):
+		""" Call the internal istitle method on string """
+		return PyVector(tuple(s.istitle(*args, **kwargs) for s in self._underlying))
+
+	def isupper(self, *args, **kwargs):
+		""" Call the internal isupper method on string """
+		return PyVector(tuple(s.isupper(*args, **kwargs) for s in self._underlying))
+
+	def join(self, *args, **kwargs):
+		""" Call the internal join method on string """
+		return PyVector(tuple(s.join(*args, **kwargs) for s in self._underlying))
+
+	def ljust(self, *args, **kwargs):
+		""" Call the internal ljust method on string """
+		return PyVector(tuple(s.ljust(*args, **kwargs) for s in self._underlying))
+
+	def lower(self, *args, **kwargs):
+		""" Call the internal lower method on string """
+		return PyVector(tuple(s.lower(*args, **kwargs) for s in self._underlying))
+
+	def lstrip(self, *args, **kwargs):
+		""" Call the internal lstrip method on string """
+		return PyVector(tuple(s.lstrip(*args, **kwargs) for s in self._underlying))
+
+	def maketrans(self, *args, **kwargs):
+		""" Call the internal maketrans method on string """
+		return PyVector(tuple(s.maketrans(*args, **kwargs) for s in self._underlying))
+
+	def partition(self, *args, **kwargs):
+		""" Call the internal partition method on string """
+		return PyVector(tuple(s.partition(*args, **kwargs) for s in self._underlying))
+
+	def removeprefix(self, *args, **kwargs):
+		""" Call the internal removeprefix method on string """
+		return PyVector(tuple(s.removeprefix(*args, **kwargs) for s in self._underlying))
+
+	def removesuffix(self, *args, **kwargs):
+		""" Call the internal removesuffix method on string """
+		return PyVector(tuple(s.removesuffix(*args, **kwargs) for s in self._underlying))
+
+	def replace(self, *args, **kwargs):
+		""" Call the internal replace method on string """
+		return PyVector(tuple(s.replace(*args, **kwargs) for s in self._underlying))
+
+	def rfind(self, *args, **kwargs):
+		""" Call the internal rfind method on string """
+		return PyVector(tuple(s.rfind(*args, **kwargs) for s in self._underlying))
+
+	def rindex(self, *args, **kwargs):
+		""" Call the internal rindex method on string """
+		return PyVector(tuple(s.rindex(*args, **kwargs) for s in self._underlying))
+
+	def rjust(self, *args, **kwargs):
+		""" Call the internal rjust method on string """
+		return PyVector(tuple(s.rjust(*args, **kwargs) for s in self._underlying))
+
+	def rpartition(self, *args, **kwargs):
+		""" Call the internal rpartition method on string """
+		return PyVector(tuple(s.rpartition(*args, **kwargs) for s in self._underlying))
+
+	def rsplit(self, *args, **kwargs):
+		""" Call the internal rsplit method on string """
+		return PyVector(tuple(s.rsplit(*args, **kwargs) for s in self._underlying))
+
+	def rstrip(self, *args, **kwargs):
+		""" Call the internal rstrip method on string """
+		return PyVector(tuple(s.rstrip(*args, **kwargs) for s in self._underlying))
+
+	def split(self, *args, **kwargs):
+		""" Call the internal split method on string """
+		return PyVector(tuple(s.split(*args, **kwargs) for s in self._underlying))
+
+	def splitlines(self, *args, **kwargs):
+		""" Call the internal splitlines method on string """
+		return PyVector(tuple(s.splitlines(*args, **kwargs) for s in self._underlying))
+
+	def startswith(self, *args, **kwargs):
+		""" Call the internal startswith method on string """
+		return PyVector(tuple(s.startswith(*args, **kwargs) for s in self._underlying))
+
+	def strip(self, *args, **kwargs):
+		""" Call the internal strip method on string """
+		return PyVector(tuple(s.strip(*args, **kwargs) for s in self._underlying))
+
+	def swapcase(self, *args, **kwargs):
+		""" Call the internal swapcase method on string """
+		return PyVector(tuple(s.swapcase(*args, **kwargs) for s in self._underlying))
+
+	def title(self, *args, **kwargs):
+		""" Call the internal title method on string """
+		return PyVector(tuple(s.title(*args, **kwargs) for s in self._underlying))
+
+	def translate(self, *args, **kwargs):
+		""" Call the internal translate method on string """
+		return PyVector(tuple(s.translate(*args, **kwargs) for s in self._underlying))
+
+	def upper(self, *args, **kwargs):
+		""" Call the internal upper method on string """
+		return PyVector(tuple(s.upper(*args, **kwargs) for s in self._underlying))
+
+	def zfill(self, *args, **kwargs):
+		""" Call the internal zfill method on string """
+		return PyVector(tuple(s.zfill(*args, **kwargs) for s in self._underlying))
+
+#class PyMatrix(PyTable):
+
+
+"""
+Some others:
+__reduce__
+__reduce_ex__
+__sizeof__
+"""
+
+"""
+	# bitwise 
+	__and__
+	__or__
+	__xor__
+	__lshift__
+	__rshift__
+
+
+
+	__rand__
+	__rdiv__
+	__rdivmod__
+	__rlshift__
+	__rmod__
+	__rmul__
+	__ror__
+	__rpow__
+	__rrshift__
+
+	__contains__
+
+
+
+	__iadd__
+	__iand__
+	__ifloordiv__
+	__ilshift__
+	__imod__
+	__imul__
+	__ior__
+	__ipow__
+	__irshift__
+	__isub__
+	__itruediv__
+	__ixor__
+
+
+	__imatmul__
+
+"""
