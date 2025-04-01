@@ -1,6 +1,8 @@
 import operator
 import warnings
 
+from copy import deepcopy
+
 
 
 def slice_length(s: slice, sequence_length: int) -> int:
@@ -17,9 +19,18 @@ def slice_length(s: slice, sequence_length: int) -> int:
 	start, stop, step = s.indices(sequence_length)
 	return max(0, (stop - start + (step - (1 if step > 0 else -1))) // step)
 
-
-def _format_col():
-	pass
+def _format_col(col, num_rows = 5):
+	""" return a PyVector of formatted values """
+	if col._dtype == float:
+		x = PyVector([f" {v: g}" for v in col._underlying])
+	elif col._dtype == int:
+		x = PyVector([f" {v: d}" for v in col._underlying])
+	elif col._dtype == str:
+		x = PyVector([f" '{v}'" for v in col._underlying])
+	else:
+		x = PyVector([f" {v}" for v in col._underlying])
+	max_len = {len(v) for v in x}
+	return x.rjust(max(max_len))
 
 
 class PyVector():
@@ -40,7 +51,13 @@ class PyVector():
 					dtype=dtype,
 					typesafe=typesafe,
 					name=name)
-			warnings.warn('Passing vectors of length will not produce a table.')
+			warnings.warn('Passing vectors of different length will not produce a PyTable.')
+		if initial and all(isinstance(x, str) for x in initial):
+			return _PyString(initial=initial,
+				default_element=default_element,
+				dtype=dtype,
+				typesafe=typesafe,
+				name=name)
 		return super(PyVector, cls).__new__(cls)
 
 
@@ -89,7 +106,6 @@ class PyVector():
 			return cls([default_element for _ in range(length)], dtype=type(default_element), typesafe=typesafe)
 		return cls(default_element=default_element, dtype=type(default_element), typesafe=typesafe)
 
-
 	def __repr__(self):
 		if len(self) == 0:
 			return '[]'
@@ -100,14 +116,11 @@ class PyVector():
 
 
 	def __iter__(self):
+		""" iterate over the underlying tuple """
 		return iter(self._underlying)
-		#current = 0
-		#while current < len(self):
-		#	yield self._underlying[current]
-		#	current += 1
-
 
 	def __len__(self):
+		""" length of the underlying tuple """
 		return len(self._underlying)
 
 
@@ -420,7 +433,26 @@ class PyVector():
 		return self._elementwise_operation(other, operator.pow, '__pow__', '**')
 
 	def __radd__(self, other):
-		return self.__add__(other)
+		""" Change behavior for strings """
+		other = self._check_duplicate(other)
+		if isinstance(other, PyVector):
+			assert len(self) == len(other)
+			if self._typesafe:
+				other._promote(self._dtype)
+			return PyVector(tuple(y + x for x, y in zip(self, other, strict=True)),
+							default_element=(other._default + self._default if self._default is not None and other._default is not None else None),
+							dtype=self._dtype if self._typesafe else None,
+							typesafe=self._typesafe)
+
+		if isinstance(other, self._dtype or object) or self._check_native_typesafe(other):
+			return PyVector(tuple(other + x for x in self),
+							default_element=(other + self._default if self._default is not None else None),
+							dtype=self._dtype if self._typesafe else None,
+							typesafe=self._typesafe)
+
+		if hasattr(other, '__iter__'):
+			assert len(self) == len(other)
+			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)), self._default, self._dtype, self._typesafe)
 
 	def __rmul__(self, other):
 		return self.__mul__(other)
@@ -471,7 +503,8 @@ class PyVector():
 	def _check_duplicate(self, other):
 		if id(self) == id(other):
 			# If the object references match, we need to copy other
-			return PyVector([x for x in other], other._default, other._dtype, other._typesafe)
+			# return PyVector((x for x in other), other._default, other._dtype, other._typesafe)
+			return deepcopy(other)
 		return other
 
 
@@ -485,44 +518,29 @@ class PyVector():
 			return True
 		if not (self._typesafe or hasattr(other, '__iter__')):
 			return True
-		if self._dtype == float and type(other) == int:
+		if self._dtype == float and type(other) == int: # includes bool since isinstance(True, int) returns True
 			return True
-		if self._dtype == complex and type(other) in (int, float):
+		if self._dtype == complex and type(other) in (int, float): # ditto
 			return True
 		return False
 
 
 	def __matmul__(self, other):
-
+		""" Recursive matrix multiplication - I think this applies to all tensor contraction, but could be wrong """
 		other = self._check_duplicate(other)
-		
 		if isinstance(other, PyVector) and other._dtype == PyVector:
 			return PyVector([self @ z for z in other._underlying])
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
-		"""
-		other = self._check_duplicate(other)
-		if isinstance(other, PyVector):
-			# Raise mismatched lengths
-			return PyVector(sum([x * y for x, y in zip(self._underlying, other._underlying, strict=True)]),
-				dtype = self._dtype,
-				typesafe = self._typesafe)
-		if hasattr(other, '__iter__'):
-			# Raise mismatched lengths
-			return PyVector([sum([x * y for x, y in zip(self._underlying, other, strict=True)])],
-				dtype = self._dtype,
-				typesafe = self._typesafe)
-
-		if self._check_native_typesafe(other):
-			return PyVector([x * other for x in self],
-				self._default + other if self._default is not None else None,
-				self._dtype,
-				self._typesafe)
-		"""
-
 		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
 
 	def __rmatmul__(self, other):
+		other = self._check_duplicate(other)
+		if self._dtype == PyVector:
+			return PyVector(tuple(x@other for x in self._underlying))
+		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
+		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		"""
 		other = self._check_duplicate(other)
 		if hasattr(other, '__iter__'):
 			# Raise mismatched lengths
@@ -538,6 +556,7 @@ class PyVector():
 				self._typesafe)
 
 		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		"""
 
 
 	def __bool__(self):
@@ -637,6 +656,26 @@ class PyTable(PyVector):
 			yield self[current]
 			current += 1
 
+
+	def __repr__(self):
+		if len(self) == 0:
+			return '[[]]'
+		elif len(self._underlying) <= 10:
+			out = ''
+			for x in self._underlying[:-1]:
+				out += _format_col(x) + ','
+			out += _format_col(self._underlying[-1])
+		else:
+			cols = self._underlying
+			for x in cols[:4]:
+				out += _format_col(x) + ','
+			out += _format_col(cols[4])
+			out += ' ... '
+			for x in cols[-5:-1]:
+				out += _format_col(x) + ','
+			out += _format_col(cols[-1])
+
+		return '[' + repr(out) + ']'
 	"""
 	def __matmul__(self, other):
 		other = self._check_duplicate(other)

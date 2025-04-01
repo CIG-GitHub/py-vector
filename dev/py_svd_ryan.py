@@ -64,15 +64,22 @@ print(sum(b*c))
 
 for ii in range(20):
 	mtx_q = mtx_p @ mtx_j
-	a = mtx_q._underlying[0]
-	b = mtx_q._underlying[1]
-	c = mtx_q._underlying[2]
 	print(f"{norm(a)}, {norm(b)} {norm(c)}")
 	# normalize q
-	mtx_q = PyVector([x * (-1 if sum(x) < 0.0 else 1)/ norm(x) for x in mtx_q._underlying])
+	mtx_q = PyVector([x * (-1 if sum(x) < 0.0 else 1)/norm(x) for x in mtx_q._underlying])
 	# mtx_q = PyVector(tuple(v/norm(v) for v in sorted(mtx_q._underlying, key=lambda x: norm(x))))
 	# orthogonalize q
 	mtx_j = orthogonalize(mtx_q)
+    a = mtx_j._underlying[0]
+    b = mtx_j._underlying[1]
+    c = mtx_j._underlying[2]
+
+
+# array([ 1.68066596, -0.22132797,  0.07626101])
+# array([[-0.44740975, -0.81246883,  0.21740413],
+#        [-0.52023891,  0.23483023, -0.78403919],
+#        [-0.72744484,  0.53361892,  0.58139315]])
+
 
 
 def argsort(seq):
