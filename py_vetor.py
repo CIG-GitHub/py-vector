@@ -98,6 +98,14 @@ class PyVector():
 		self._underlying = tuple(float(x) if self._typesafe and self._dtype == float else x for x in initial)
 
 
+	def size(self):
+		if not self:
+			return tuple()
+		if isinstance(self._underlying[0], PyVector):
+			return self._underlying[0].size() + (len(self._underlying),) 
+		return (len(self),)
+
+
 	@classmethod
 	def new(cls, default_element, length, typesafe=False):
 		""" create a new, initialized vector of length * default_element"""
@@ -489,7 +497,9 @@ class PyVector():
 
 
 	def cols(self):
-		return iter(self._underlying)
+		if len(self.size()) > 1:
+			return tuple(x for x in self._underlying)
+		return (self,)
 
 	def __hash__(self):
 		return hash((
@@ -540,23 +550,6 @@ class PyVector():
 			return PyVector(tuple(x@other for x in self._underlying))
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
 		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
-		"""
-		other = self._check_duplicate(other)
-		if hasattr(other, '__iter__'):
-			# Raise mismatched lengths
-			assert len(self) == len(other)
-			return PyVector([sum([x @ y for x, y in zip(other, z, strict=True)]) for z in self],
-				dtype = self._dtype,
-				typesafe = self._typesafe)
-
-		if self._check_native_typesafe(other):
-			return PyVector([x * other for x in self],
-				self._default + other if self._default is not None else None,
-				self._dtype,
-				self._typesafe)
-
-		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
-		"""
 
 
 	def __bool__(self):
@@ -572,9 +565,12 @@ class PyVector():
 			return True
 		return False
 
+
 	def __lshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
 		"""
+		if self._dtype in (bool, int) and isinstance(other, int):
+			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
 
 		if isinstance(other, PyVector):
 			if self._typesafe and other._typesafe and self._dtype != other._dtype:
@@ -589,11 +585,45 @@ class PyVector():
 				self._default, # self does not inherit other's default element
 				self._dtype,
 				self._typesafe)
-		return PyVector(self._underlying + tuple(other,),
+		return PyVector(self._underlying + (other,),
 				self._default, # self does not inherit other's default element
 				self._dtype,
 				self._typesafe)
 
+
+	def __rshift__(self, other):
+		""" The >> operator behavior has been overridden to add the column(s) of other to self
+		"""
+		if self._dtype in (bool, int) and isinstance(other, int):
+			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
+
+		if isinstance(other, PyTable):
+			if self._typesafe and other._typesafe and self._dtype != other._dtype:
+				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+			# complicated typesafety rules here - what if a whole bunch of things.
+			return PyVector(self.cols() + other.cols(),
+				self._default, # self does not inherit other's default element
+				self._dtype or other._dtype,
+				self._typesafe or other._typesafe)
+		if isinstance(other, PyVector):
+			if self._typesafe and other._typesafe and self._dtype != other._dtype:
+				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+			# complicated typesafety rules here - what if a whole bunch of things.
+			return PyVector([self, other],
+				self._default, # self does not inherit other's default element
+				self._dtype or other._dtype,
+				self._typesafe or other._typesafe)
+		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+			return PyVector([self, PyVector(tuple(x for x in other))],
+				self._default, # self does not inherit other's default element
+				self._dtype,
+				self._typesafe)
+		elif not self:
+			return PyVector((other,),
+				self._default, # self does not inherit other's default element
+				self._dtype,
+				self._typesafe)
+		raise TypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
 
 class PyTable(PyVector):
 	""" Multiple columns of the same length """
@@ -661,10 +691,10 @@ class PyTable(PyVector):
 		if len(self) == 0:
 			return '[[]]'
 		elif len(self._underlying) <= 10:
-			out = ''
+			out = '['
 			for x in self._underlying[:-1]:
 				out += _format_col(x) + ','
-			out += _format_col(self._underlying[-1])
+			out += _format_col(self._underlying[-1]) + ']'
 		else:
 			cols = self._underlying
 			for x in cols[:4]:
@@ -675,29 +705,21 @@ class PyTable(PyVector):
 				out += _format_col(x) + ','
 			out += _format_col(cols[-1])
 
-		return '[' + repr(out) + ']'
-	"""
-	def __matmul__(self, other):
-		other = self._check_duplicate(other)
-		if hasattr(other, '__iter__'):
-			# Raise mismatched lengths
-			if isinstance(other, (PyVector, PyTable)):
-				assert len(self._underlying) == len(other._underlying)
-				return PyVector([sum([x @ y for x, y in zip(self._underlying, z, strict=True)]) for z in other._underlying],
-					dtype = self._dtype,
-					typesafe = self._typesafe)
-			return PyVector([sum([x @ y for x, y in zip(self._underlying, z, strict=True)]) for z in other],
-				dtype = self._dtype,
-				typesafe = self._typesafe)
+		return repr(out)
 
-		if self._check_native_typesafe(other):
-			return PyVector([x * other for x in self._underlying],
-				self._default + other if self._default is not None else None,
-				self._dtype,
-				self._typesafe)
+	def __lshift__(self, other):
+		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
+		"""
+		if isinstance(other, PyTable):
+			return PyVector([x << y for x, y in zip(self._underlying, other._underlying, strict=True)])
+		return PyVector([x << y for x, y in zip(self._underlying, other, strict=True)])
 
-		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
-	"""
+	def __rshift__(self, other):
+		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
+		"""
+		if isinstance(other, PyTable):
+			return PyVector([self._underlying + other._underlying])
+		return PyVector(self._underlying + (other,))
 
 class _PyFloat(PyVector):
 	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
