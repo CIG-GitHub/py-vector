@@ -22,17 +22,17 @@ def slice_length(s: slice, sequence_length: int) -> int:
 
 def _format_col(col, num_rows = 5):
 	""" return a PyVector of formatted values """
+	und = col._underlying if len(col)<=num_rows*2 else col._underlying[:num_rows] + col._underlying[-num_rows-1:]
 	if col._dtype == float:
-		x = PyVector([f"{v: g}" for v in col._underlying])
+		x = PyVector([f"{v: g}" for v in und])
 	elif col._dtype == int:
-		x = PyVector([f"{v: d}" for v in col._underlying])
+		x = PyVector([f"{v: d}" for v in und])
 	elif col._dtype == str:
-		x = PyVector([f"'{v}'" for v in col._underlying])
+		x = PyVector([f"'{v}'" for v in und])
 	else:
-		x = PyVector([f"{v}" for v in col._underlying])
+		x = PyVector([f"{v}" for v in und])
 	max_len = {len(v) for v in x}
 	return x.rjust(max(max_len))
-
 
 class PyVector():
 	""" Iterable vector with optional type safety """
@@ -59,7 +59,7 @@ class PyVector():
 				dtype=dtype,
 				typesafe=typesafe,
 				name=name)
-		if initial and all(isinstance(x, int) for x in initial) and all(not isinstance(x, int) for x in initial):
+		if initial and all(isinstance(x, int) for x in initial) and all(not isinstance(x, bool) for x in initial):
 			return _PyInt(initial=initial,
 				default_element=default_element,
 				dtype=dtype,
@@ -78,18 +78,11 @@ class PyVector():
 		""" Create a new PyVector from an initial list """
 		self._typesafe = typesafe
 		self._dtype = dtype
-		self._name = name or 'Unnamed'
-
-		if not isinstance(initial, (list, tuple)) and default_element is None:
-			# if they pass a non-list type into "initial" and do not specify a default
-			# assume an default is the item passed and they want an empty vector of it
-			default_element = initial
-			initial = ()
-			self._underlying = ()
+		self._name = name
 		self._default = default_element
 
-		if self._typesafe and default_element is not None:
-			assert isinstance(default_element, dtype)
+		if self._typesafe and default_element is not None and not isinstance(default_element, dtype):
+			raise TypeError(f"Default element cannot be of type {type(default_element)} for typesafe PyVector(<{dtype}>)")
 
 		# If the initial item is not a list
 		if not isinstance(initial, (list, tuple)):
@@ -464,7 +457,6 @@ class PyVector():
 		if hasattr(other, '__iter__'):
 			assert len(self) == len(other)
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)), self._default, self._dtype, self._typesafe)
-		print('how')
 		return self + other
 
 	def __rmul__(self, other):
@@ -493,13 +485,15 @@ class PyVector():
 		if self._typesafe:
 			raise TypeError(f'Cannot convert typesafe PyVector from {self._dtype.__name__} to {new_dtype.__name__}.')
 		if new_dtype == float and self._dtype == int:
-			self._underlying = [float(x) for x in self._underlying]
+			self._underlying = tuple(float(x) for x in self._underlying)
 			self._dtype = float
 		if new_dtype == complex and self._dtype in (int, float):
-			self._underlying = [complex(x) for x in self._underlying]
+			self._underlying = tuple(complex(x) for x in self._underlying)
 			self._dtype = complex
 		return
 
+	def ndims(self):
+		return len(self.size())
 
 	def cols(self):
 		if len(self.size()) > 1:
@@ -515,12 +509,21 @@ class PyVector():
 
 	def sum(self):
 		return sum(self)
+	Recursive Vector Operations
 	"""
 
 	def mean(self):
-		return sum(self) / len(self)
+		if self.ndims() > 1:
+			return self.copy((c.mean() for c in self.cols()))
+		return sum(self._underlying) / len(self._underlying)
 
 	def stdev(self, population=False):
+		if self.ndims() > 1:
+			return self.copy((c.stdev(population) for c in self.cols()))
+		m = self.mean()
+
+		# use in-place sum over generator for fastness. I AM SPEED!
+		# This is still 10x slower than numpy.
 		num = sum((x-m)*(x-m) for x in self._underlying)
 		return (num/(len(self) - 1 + population))**0.5
 
@@ -569,15 +572,15 @@ class PyVector():
 		""" Recursive matrix multiplication - I think this applies to all tensor contraction, but could be wrong """
 		other = self._check_duplicate(other)
 		if isinstance(other, PyTable):
-			return PyVector([self @ z for z in other._underlying])
-		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
+			return PyVector(tuple(self @ z for z in other.cols()))
+		return sum(x*y for x, y in zip(self._underlying, other._underlying, strict=True))
 		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
 
 	def __rmatmul__(self, other):
 		other = self._check_duplicate(other)
 		if len(self.size()) > 1:
-			return PyVector(tuple(x@other for x in self.cols()))
+			return PyVector(tuple(x @ other for x in self.cols()))
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
 		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
@@ -718,10 +721,10 @@ class PyTable(PyVector):
 
 
 	def __repr__(self):
+		out = '['
 		if len(self) == 0:
 			return '[[]]'
 		elif len(self._underlying) <= 10:
-			out = '['
 			for x in self._underlying[:-1]:
 				out += _format_col(x) + ', '
 			out += _format_col(self._underlying[-1]) + ']'
@@ -733,7 +736,7 @@ class PyTable(PyVector):
 			out += ' ... '
 			for x in cols[-5:-1]:
 				out += _format_col(x) + ','
-			out += _format_col(cols[-1])
+			out += _format_col(cols[-1]) + ']'
 
 		return repr(out)
 
@@ -1052,55 +1055,3 @@ class _PyString(PyVector):
 	def zfill(self, *args, **kwargs):
 		""" Call the internal zfill method on string """
 		return PyVector(tuple(s.zfill(*args, **kwargs) for s in self._underlying))
-
-#class PyMatrix(PyTable):
-
-
-"""
-Some others:
-__reduce__
-__reduce_ex__
-__sizeof__
-"""
-
-"""
-	# bitwise 
-	__and__
-	__or__
-	__xor__
-	__lshift__
-	__rshift__
-
-
-
-	__rand__
-	__rdiv__
-	__rdivmod__
-	__rlshift__
-	__rmod__
-	__rmul__
-	__ror__
-	__rpow__
-	__rrshift__
-
-	__contains__
-
-
-
-	__iadd__
-	__iand__
-	__ifloordiv__
-	__ilshift__
-	__imod__
-	__imul__
-	__ior__
-	__ipow__
-	__irshift__
-	__isub__
-	__itruediv__
-	__ixor__
-
-
-	__imatmul__
-
-"""
