@@ -19,16 +19,17 @@ def slice_length(s: slice, sequence_length: int) -> int:
 	start, stop, step = s.indices(sequence_length)
 	return max(0, (stop - start + (step - (1 if step > 0 else -1))) // step)
 
+
 def _format_col(col, num_rows = 5):
 	""" return a PyVector of formatted values """
 	if col._dtype == float:
-		x = PyVector([f" {v: g}" for v in col._underlying])
+		x = PyVector([f"{v: g}" for v in col._underlying])
 	elif col._dtype == int:
-		x = PyVector([f" {v: d}" for v in col._underlying])
+		x = PyVector([f"{v: d}" for v in col._underlying])
 	elif col._dtype == str:
-		x = PyVector([f" '{v}'" for v in col._underlying])
+		x = PyVector([f"'{v}'" for v in col._underlying])
 	else:
-		x = PyVector([f" {v}" for v in col._underlying])
+		x = PyVector([f"{v}" for v in col._underlying])
 	max_len = {len(v) for v in x}
 	return x.rjust(max(max_len))
 
@@ -58,6 +59,18 @@ class PyVector():
 				dtype=dtype,
 				typesafe=typesafe,
 				name=name)
+		if initial and all(isinstance(x, int) for x in initial) and all(not isinstance(x, int) for x in initial):
+			return _PyInt(initial=initial,
+				default_element=default_element,
+				dtype=dtype,
+				typesafe=typesafe,
+				name=name)
+		if initial and all(isinstance(x, float) for x in initial):
+			return _PyFloat(initial=initial,
+				default_element=default_element,
+				dtype=dtype,
+				typesafe=typesafe,
+				name=name)
 		return super(PyVector, cls).__new__(cls)
 
 
@@ -83,7 +96,10 @@ class PyVector():
 			raise TypeError('Initial value must be a list.')
 
 		if initial: # Know it's a list with at least one item.
-			init_dtypes = {type(x) for x in initial}
+			try:
+				init_dtypes = {x._dtype for x in initial}
+			except:
+				init_dtypes = {type(x) for x in initial}
 			if dtype:
 				init_dtypes.add(dtype)
 			if len(init_dtypes) == 1:
@@ -95,7 +111,7 @@ class PyVector():
 				assert not typesafe
 				self._dtype = None
 
-		self._underlying = tuple(float(x) if self._typesafe and self._dtype == float else x for x in initial)
+		self._underlying = tuple(x + 0.0 if self._dtype == float else x for x in initial)
 
 
 	def size(self):
@@ -113,6 +129,13 @@ class PyVector():
 			assert isinstance(length, int)
 			return cls([default_element for _ in range(length)], dtype=type(default_element), typesafe=typesafe)
 		return cls(default_element=default_element, dtype=type(default_element), typesafe=typesafe)
+
+
+	def copy(self, new_values = None):
+		return PyVector(tuple(x for x in (new_values or self._underlying)),
+			default_element = self._default,
+			dtype = self._dtype,
+			typesafe = self._typesafe)
 
 	def __repr__(self):
 		if len(self) == 0:
@@ -149,44 +172,24 @@ class PyVector():
 		key = self._check_duplicate(key)
 		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
 			assert (len(self) == len(key))
-			return PyVector([x for x, y in zip(self, key, strict=True) if y],
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
-			)
+			return self.copy((x for x, y in zip(self, key, strict=True) if y))
 		if isinstance(key, list) and {type(e) for e in key} == {bool}:
 			assert (len(self) == len(key))
-			return PyVector([x for x, y in zip(self, key, strict=True) if y],
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
-			)
+			return self.copy((x for x, y in zip(self, key, strict=True) if y))
 		if isinstance(key, slice):
-			return PyVector(self._underlying[key], 
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
-			)
+			return self.copy(self._underlying[key])
 
 		# NOT RECOMMENDED
 		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors')
-			return PyVector([self[x] for x in key],
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
-			)
+			return self.copy((self[x] for x in key))
 
 		# NOT RECOMMENDED
 		if isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors')
-			return PyVector([self[x] for x in key],
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
-			)
+			return self.copy((self[x] for x in key))
 		raise TypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
 
 
@@ -408,7 +411,7 @@ class PyVector():
 							typesafe=self._typesafe)
 
 		if isinstance(other, self._dtype or object) or self._check_native_typesafe(other):
-			return PyVector(tuple(op_func(x, other) for x in self),
+			return PyVector(tuple(op_func(x, other) for x in self._underlying),
 							default_element=(op_func(self._default,  other) if self._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
 							typesafe=self._typesafe)
@@ -461,6 +464,8 @@ class PyVector():
 		if hasattr(other, '__iter__'):
 			assert len(self) == len(other)
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)), self._default, self._dtype, self._typesafe)
+		print('how')
+		return self + other
 
 	def __rmul__(self, other):
 		return self.__mul__(other)
@@ -501,6 +506,31 @@ class PyVector():
 			return tuple(x for x in self._underlying)
 		return (self,)
 
+	"""
+	def max(self):
+		return max(self)
+
+	def min(self):
+		return min(self)
+
+	def sum(self):
+		return sum(self)
+	"""
+
+	def mean(self):
+		return sum(self) / len(self)
+
+	def stdev(self, population=False):
+		num = sum((x-m)*(x-m) for x in self._underlying)
+		return (num/(len(self) - 1 + population))**0.5
+
+	def unique(self):
+		return {x for x in self}
+
+	def argsort(self):
+		return [i for i, _ in sorted(enumerate(self._underlying), key=lambda x: x[1])]
+
+
 	def __hash__(self):
 		return hash((
 			self._dtype,
@@ -538,7 +568,7 @@ class PyVector():
 	def __matmul__(self, other):
 		""" Recursive matrix multiplication - I think this applies to all tensor contraction, but could be wrong """
 		other = self._check_duplicate(other)
-		if isinstance(other, PyVector) and other._dtype == PyVector:
+		if isinstance(other, PyTable):
 			return PyVector([self @ z for z in other._underlying])
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
 		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
@@ -546,8 +576,8 @@ class PyVector():
 
 	def __rmatmul__(self, other):
 		other = self._check_duplicate(other)
-		if self._dtype == PyVector:
-			return PyVector(tuple(x@other for x in self._underlying))
+		if len(self.size()) > 1:
+			return PyVector(tuple(x@other for x in self.cols()))
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
 		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
@@ -693,7 +723,7 @@ class PyTable(PyVector):
 		elif len(self._underlying) <= 10:
 			out = '['
 			for x in self._underlying[:-1]:
-				out += _format_col(x) + ','
+				out += _format_col(x) + ', '
 			out += _format_col(self._underlying[-1]) + ']'
 		else:
 			cols = self._underlying
@@ -718,8 +748,8 @@ class PyTable(PyVector):
 		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
 		"""
 		if isinstance(other, PyTable):
-			return PyVector([self._underlying + other._underlying])
-		return PyVector(self._underlying + (other,))
+			return PyVector(self.cols() + other.cols())
+		return PyVector(self.cols() + (other,))
 
 class _PyFloat(PyVector):
 	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
@@ -769,7 +799,7 @@ class _PyFloat(PyVector):
 
 
 
-class _PyInt(PyVector, int):
+class _PyInt(PyVector):
 	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
 		return super(PyVector, cls).__new__(cls)
 
@@ -828,7 +858,7 @@ class _PyInt(PyVector, int):
 		return PyVector(tuple(s.to_bytes() for s in self._underlying))
 
 
-class _PyString(PyVector, str):
+class _PyString(PyVector):
 	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
 		return super(PyVector, cls).__new__(cls)
 
