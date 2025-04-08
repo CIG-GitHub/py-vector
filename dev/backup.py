@@ -1,4 +1,41 @@
+class Scott():
+	_underlying = None
+	index = 0
+	stuff = 'stuff'
 
+	def __init__(self, values=None, names=None):
+		self._underlying = values
+		self._colnames = names
+		self.index = 0
+
+
+	def __dir__(self):
+		return dir(Scott) + [c for c in self._colnames]
+
+	def __getattr__(self, attr):
+		if attr in self._colnames:
+			idx = self._colnames.index(attr)
+			return self._underlying[idx]
+
+	def __repr__(self):
+		return 'Scott(' + repr(self._underlying) + ',' + repr(self._colnames) + ')'
+
+
+
+class Ryan():
+	_underlying = None
+	def __init__(self, value=0):
+		self._underlying = value
+
+	def increment(self):
+		self._underlying += 1
+
+
+	def __repr__(self):
+		return 'Ryan(' + repr(self._underlying) + ')'
+
+	def __add__(self, value):
+		return Ryan(self._underlying + value)
 	"""
 
 			if isinstance(key, list) and {type(e) for e in key} == {bool}:
