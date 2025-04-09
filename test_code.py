@@ -35,8 +35,8 @@ class Fake():
 
 from py_vetor import PyVector
 a = PyVector([1, 2, 0, 1], name = 'a')
-b = PyVector([0, 1, 1, 1], name = 'b')
-c = PyVector([1, 1, 1, 2], name = 'c')
+b = PyVector([0, -1, -1, 1], name = 'b')
+c = PyVector([3, 1, -2, 2], name = 'c')
 big_a = PyVector([a, b, c])
 
 d = PyVector([1, 2, 4])

@@ -36,7 +36,13 @@ class Ryan():
 
 	def __add__(self, value):
 		return Ryan(self._underlying + value)
+
+
+
+def recursive_disp(header, footer, data, separator_levels)
+
 	"""
+
 
 			if isinstance(key, list) and {type(e) for e in key} == {bool}:
 				assert (len(self) == len(key))

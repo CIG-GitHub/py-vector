@@ -35,6 +35,9 @@ def _format_col(col, num_rows = 5):
 	max_len = {len(v) for v in x}
 	return x.rjust(max(max_len))
 
+def _str_to_repr(head, tail, joiner):
+	pass
+
 class PyVector():
 	""" Iterable vector with optional type safety """
 	_dtype = None
@@ -86,7 +89,9 @@ class PyVector():
 		""" Create a new PyVector from an initial list """
 		self._typesafe = typesafe
 		self._dtype = dtype
-		self._name = name
+		self._name = None
+		if name:
+			self.rename(name)
 		self._default = default_element
 		self._display_as_row = as_row
 
@@ -123,10 +128,14 @@ class PyVector():
 	def size(self):
 		if not self:
 			return tuple()
-		if isinstance(self._underlying[0], PyVector):
-			return self._underlying[0].size() + (len(self._underlying),) 
+		# if isinstance(self._underlying[0], PyVector):
+		# 	return (len(self._underlying),) + self._underlying[0].size()
 		return (len(self),)
 
+	def rename(self, new_name):
+		if new_name.startswith('_'):
+			raise NameError("Vector names cannot begin with '_'")
+		self._name = new_name
 
 	@classmethod
 	def new(cls, default_element, length, typesafe=False):
@@ -146,12 +155,12 @@ class PyVector():
 	def __repr__(self):
 		joiner = ', ' if self._display_as_row else ',\n  '
 		if len(self) == 0:
-			return '[]'
+			return 'PyVector([])'
 		elif len(self) <= 10:
-			return '[\n  ' + joiner.join([str(x) for x in self._underlying]) + '\n]'
+			return 'PyVector([\n  ' + joiner.join([str(x) for x in self._underlying]) + '\n]'
 		return '[\n  ' + joiner.join([str(x) for x in self._underlying[:5]]) + \
 		    joiner + '...' + joiner[1:] + joiner.join([str(x) for x in self._underlying[-5:]]) + \
-		    '\n]' + f' # {len(self)} {self._dtype}'
+		    '\n]' + f' # {len(self)} {self._dtype.__name__}'
 
 
 	def __iter__(self):
@@ -187,7 +196,7 @@ class PyVector():
 				raise KeyError(f'Matrix indexing must provide an index in each dimension: {self.size()}')
 			if len(key) == 1:
 				return self[key[0]]
-			return self[key[0]][key[1:]]
+			return self._underlying[key[-1]][key[:-1]]
 
 		key = self._check_duplicate(key)
 		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
@@ -507,7 +516,11 @@ class PyVector():
 	def ndims(self):
 		return len(self.size())
 
-	def cols(self):
+	def cols(self, key=None):
+		if isinstance(key, int):
+			return self._underlying[key]
+		if isinstance(key, slice):
+			print(key)
 		return self._underlying
 
 	"""
@@ -688,10 +701,29 @@ class PyTable(PyVector):
 		return super().__init__(initial, default_element=default_element, dtype=dtype, typesafe=typesafe, name=name)
 
 	def __len__(self):
+		if not self:
+			return 0
+		if isinstance(self._underlying[0], PyTable):
+			return len(self._underlying)
 		return self._length
 
+	def size(self):
+		# if isinstance(self._underlying[0], PyVector):
+		# 	return 
+		return (len(self),) + self[0].size()
+
+	def __dir__(self):
+		return dir(PyVector) + [c._name for c in self._underlying]
+
+	def __getattr__(self, attr):
+		if attr in [c._name for c in self._underlying]:
+			idx = [c._name for c in self._underlying].index(attr)
+			return self._underlying[idx]
+
 	def T(self):
-		return self.copy((tuple(x for x in self))) # rows
+		if len(self.size())==2:
+			return self.copy((tuple(x for x in self))) # rows
+		return self.copy((tuple(x.T() for x in self))) # rows
 
 	def __getitem__(self, key):
 		key = self._check_duplicate(key)
@@ -700,11 +732,13 @@ class PyTable(PyVector):
 
 		if isinstance(key, int):
 			# Effectively a different input type (single not a list). Returning a value, not a vector.
+			if isinstance(self._underlying[0], PyTable):
+				return self._underlying[key]
 			return PyVector(tuple(col[key] for col in self._underlying),
 				default_element = self._default,
 				dtype = self._dtype,
 				typesafe = self._typesafe
-			)
+			).T()
 
 		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
 			assert (len(self) == len(key))
@@ -1149,12 +1183,17 @@ class _PyDate(PyVector):
 				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), False, bool, True)
 			if other._dtype == datetime:
 				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), False, bool, True)
-			return super()._elementwise_compare(other, op)
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		elif hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
+			# If it's not a PyVector or Constant, don't apply date compare logic
 			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), False, bool, True)
-		return PyVector(tuple(bool(op(x, other)) for x in self), False, bool, True)
+		elif isinstance(other, str):
+			return PyVector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), False, bool, True)
+		elif isinstance(other, datetime):
+			return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), other)) for x in self), False, bool, True)
+		# finally, 
+		return super()._elementwise_compare(other, op)
 
 
 	def ctime(self, *args, **kwargs):
@@ -1220,3 +1259,14 @@ class _PyDate(PyVector):
 
 	def year(self):
 		return PyVector(tuple(s.year for s in self._underlying))
+
+	def __add__(self, other):
+		""" adding integers is adding days """
+		if isinstance(other, PyVector) and other._dtype == int:
+			return PyVector(tuple(date.fromordinal(s.toordinal() + y) for s, y in zip(self._underlying, other, strict=True)))
+		if isinstance(other, int):
+			return PyVector(tuple(date.fromordinal(s.toordinal() + 1) for s in self._underlying))
+		return super().add(other)
+
+	def eomonth(self):
+		return self
