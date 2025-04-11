@@ -38,8 +38,74 @@ class Ryan():
 		return Ryan(self._underlying + value)
 
 
+from py_vector import PyVector
+def _format_col(col, num_rows = 5):
+	""" return a PyVector of formatted values """
+	und = col._underlying if len(col)<=num_rows*2 else col._underlying[:num_rows] + col._underlying[-num_rows-1:]
+	if col._dtype == float:
+		x = PyVector([f"{v: g}" for v in und])
+	elif col._dtype == int:
+		x = PyVector([f"{v: d}" for v in und])
+	elif col._dtype == str:
+		x = PyVector([f"'{v}'" for v in und])
+	else:
+		x = PyVector([f"{repr(v)}" for v in und])
+	max_len = {len(v) for v in x}
+	return x.rjust(max(max_len))
 
-def recursive_disp(header, footer, data, separator_levels)
+def _recursive_colnames(pv):
+	if len(size(pv)) > 2:
+
+
+def format_footer(pv):
+	base = f"\n) # {'x'.join([str(s) for s in pv.size()])}"
+	identifier = ' table' if len(pv.size()) > 1 else ' element array'
+	dataclass = f" <{pv._dtype.__name__}>" if pv._dtype else ''
+	return base + identifier + dataclass
+
+def printr(pv, outer=True, opener='', closer='', joiner='', warning=''):
+	if outer:
+		header = f'PyVector(name={repr(pv._name)},\n' if pv._name else 'PyVector(\n'
+		opener = 'rows= ['
+		closer = ']'
+		footer = format_footer(pv)
+
+
+	if len(pv.size()) == 2:
+		out = '['
+		if len(pv) == 0:
+			return '[[]]'
+		elif len(pv.cols()) <= 10:
+			for x in pv.cols()[:-1]:
+				out += _format_col(x) + ', '
+			out += _format_col(pv.cols()[-1]) + ']'
+		else:
+			cols = pv.cols()
+			for x in cols[:4]:
+				out += _format_col(x) + ', '
+			out += _format_col(cols[4])
+			out += ' ... '
+			for x in cols[-5:-1]:
+				out += _format_col(x) + ', '
+			out += _format_col(cols[-1]) + ']'
+
+	return header + opener + ',\n       '.join(out) + closer + footer
+"""
+	if len(pv.size()) > 5:
+		opener = '['
+		closer = ']'
+	elif len(pv.size()) == 5:
+		warning = '\n # repr will only show the 4 innermost dimensions.'
+		content = printr(pv[0]) + warning
+	elif len(pv.size()) == 4:
+		joiner = f"\n,"
+		content = 
+	elif len(pv.size()) == 3:
+		joiner = f"\n,"
+	elif len(pv.size()) == 2:
+		content = 
+"""
+
 
 	"""
 

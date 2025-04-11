@@ -48,7 +48,7 @@ class PyVector():
 	_display_as_row = False
 
 
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		""" Decide what type of PyVector this is """
 		if initial and all(isinstance(x, PyVector) for x in initial):
 			if len({len(x) for x in initial}) == 1:
@@ -56,32 +56,37 @@ class PyVector():
 					default_element=default_element,
 					dtype=dtype,
 					typesafe=typesafe,
-					name=name)
+					name=name, 
+					as_row=as_row)
 			warnings.warn('Passing vectors of different length will not produce a PyTable.')
 		if initial and all(isinstance(x, str) for x in initial):
 			return _PyString(initial=initial,
 				default_element=default_element,
 				dtype=dtype,
 				typesafe=typesafe,
-				name=name)
+				name=name,
+				as_row=as_row)
 		if initial and all(isinstance(x, int) for x in initial) and all(not isinstance(x, bool) for x in initial):
 			return _PyInt(initial=initial,
 				default_element=default_element,
 				dtype=dtype,
 				typesafe=typesafe,
-				name=name)
+				name=name,
+				as_row=as_row)
 		if initial and all(isinstance(x, float) for x in initial):
 			return _PyFloat(initial=initial,
 				default_element=default_element,
 				dtype=dtype,
 				typesafe=typesafe,
-				name=name)
+				name=name,
+				as_row=as_row)
 		if initial and all(isinstance(x, date) for x in initial):
 			return _PyDate(initial=initial,
 				default_element=default_element,
 				dtype=dtype,
 				typesafe=typesafe,
-				name=name)
+				name=name,
+				as_row=as_row)
 		return super(PyVector, cls).__new__(cls)
 
 
@@ -150,7 +155,8 @@ class PyVector():
 		return PyVector(tuple(x for x in (new_values or self._underlying)),
 			default_element = self._default,
 			dtype = self._dtype,
-			typesafe = self._typesafe)
+			typesafe = self._typesafe,
+			as_row = self._display_as_row)
 
 	def __repr__(self):
 		joiner = ', ' if self._display_as_row else ',\n  '
@@ -693,10 +699,10 @@ class PyTable(PyVector):
 	""" Multiple columns of the same length """
 	_length = None
 	
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		self._length = len(initial[0]) if initial else 0
 		return super().__init__(initial, default_element=default_element, dtype=dtype, typesafe=typesafe, name=name)
 
@@ -722,13 +728,24 @@ class PyTable(PyVector):
 
 	def T(self):
 		if len(self.size())==2:
-			return self.copy((tuple(x for x in self))) # rows
+			return self.copy((tuple(x.T() for x in self))) # rows
 		return self.copy((tuple(x.T() for x in self))) # rows
 
 	def __getitem__(self, key):
 		key = self._check_duplicate(key)
 		if isinstance(key, tuple):
-			return super().__getitem__(key)
+			if len(key) != len(self.size()):
+				raise KeyError(f'Matrix indexing must provide an index in each dimension: {self.size()}')
+			# for now.
+			if len(key) > 2:
+				return self[key[0]][key[1:]]
+			if isinstance(key[1], slice):
+				if isinstance(key[0], slice):
+					return self.copy(self[key[0]]._underlying[key[1]])
+				return self[key[0]][key[1]]
+			return self[key[0]]._underlying[key[1]]
+
+
 
 		if isinstance(key, int):
 			# Effectively a different input type (single not a list). Returning a value, not a vector.
@@ -865,10 +882,10 @@ class PyTable(PyVector):
 		return PyVector(self.cols() + (other,))
 
 class _PyFloat(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		return super().__init__(initial, default_element=default_element, dtype=float, typesafe=typesafe, name=name)
 
 	def __getattr__(self, name):
@@ -913,11 +930,11 @@ class _PyFloat(PyVector):
 
 
 class _PyInt(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
-		return super().__init__(initial, default_element=default_element, dtype=int, typesafe=typesafe, name=name)
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+		return super().__init__(initial, default_element=default_element, dtype=int, typesafe=typesafe, name=name, as_row=as_row)
 
 	def __getattr__(self, name):
 		""" get integer attributes first (numerator, denominator, real, etc.) """
@@ -972,11 +989,11 @@ class _PyInt(PyVector):
 
 
 class _PyString(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
-		return super().__init__(initial, default_element=default_element, dtype=str, typesafe=typesafe, name=name)
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+		return super().__init__(initial, default_element=default_element, dtype=str, typesafe=typesafe, name=name, as_row=as_row)
 
 	def capitalize(self):
 		""" Call the internal capitalize method on string """
@@ -1168,11 +1185,11 @@ class _PyString(PyVector):
 
 
 class _PyDate(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=None):
 		return super(PyVector, cls).__new__(cls)
 
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
-		return super().__init__(initial, default_element=default_element, dtype=date, typesafe=typesafe, name=name)
+		return super().__init__(initial, default_element=default_element, dtype=date, typesafe=typesafe, name=name, as_row=as_row)
 
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)
