@@ -39,7 +39,7 @@ class Ryan():
 
 
 from py_vector import PyVector
-def _format_col(col, num_rows = 5):
+def _format_col(col, name_label=None, num_rows = 5):
 	""" return a PyVector of formatted values """
 	und = col._underlying if len(col)<=num_rows*2 else col._underlying[:num_rows] + col._underlying[-num_rows-1:]
 	if col._dtype == float:
@@ -50,11 +50,26 @@ def _format_col(col, num_rows = 5):
 		x = PyVector([f"'{v}'" for v in und])
 	else:
 		x = PyVector([f"{repr(v)}" for v in und])
-	max_len = {len(v) for v in x}
-	return x.rjust(max(max_len))
+	max_len = max({len(v) for v in x})
+	if name_label is not None:
+		#print(f'started here [{name_label}]')
+		name_label = f"'{name_label}'"
+		if len(name_label) < max_len:
+			#print(f'adjusting [{name_label}] to')
+			name_label = name_label.ljust((max_len + len(name_label))//2).rjust(max_len)
+			#print(f'this thing: [{name_label}] .')
+		max_len = max(len(name_label), max_len)
+		x = PyVector([name_label]) << x
+	return x.rjust(max_len)
 
 def _recursive_colnames(pv):
-	if len(size(pv)) > 2:
+	if len(pv.size()) > 2:
+		all_colnames = {_recursive_colnames(c) for c in pv}
+		if len(all_colnames) == 1:
+			return all_colnames.pop()
+		return tuple(None for _ in all_colnames.pop())
+	names = tuple(c._name or '' for c in pv.cols())
+	return names
 
 
 def format_footer(pv):
@@ -67,6 +82,7 @@ def printr(pv, outer=True, opener='', closer='', joiner='', warning=''):
 	if outer:
 		header = f'PyVector(name={repr(pv._name)},\n' if pv._name else 'PyVector(\n'
 		opener = 'rows= ['
+		col_headers = _recursive_colnames(pv)
 		closer = ']'
 		footer = format_footer(pv)
 
@@ -76,18 +92,21 @@ def printr(pv, outer=True, opener='', closer='', joiner='', warning=''):
 		if len(pv) == 0:
 			return '[[]]'
 		elif len(pv.cols()) <= 10:
-			for x in pv.cols()[:-1]:
-				out += _format_col(x) + ', '
-			out += _format_col(pv.cols()[-1]) + ']'
+			for x, y in zip(pv.cols()[:-1], col_headers[:-1], strict=True):
+				out += _format_col(x, name_label = y) + ', '
+			out += _format_col(pv.cols()[-1], name_label=col_headers[-1]) + ']'
 		else:
 			cols = pv.cols()
-			for x in cols[:4]:
+			for x, y in zip(cols[:4], col_headers[:4], strict=True):
 				out += _format_col(x) + ', '
-			out += _format_col(cols[4])
+			out += _format_col(cols[4], col_headers[4], strict=True)
 			out += ' ... '
-			for x in cols[-5:-1]:
-				out += _format_col(x) + ', '
-			out += _format_col(cols[-1]) + ']'
+			for x, y in zip(cols[-5:-1], col_headers[-5:-1]):
+				out += _format_col(x, y) + ', '
+			out += _format_col(cols[-1], col_headers[-1]) + ']'
+
+	if col_headers:
+		return header  + 'cols=  (' + out[0][1:-1] + '),\n' + opener + '\n       '.join(out[1:]) + closer + footer
 
 	return header + opener + ',\n       '.join(out) + closer + footer
 """

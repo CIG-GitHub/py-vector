@@ -90,6 +90,7 @@ class PyVector():
 		return super(PyVector, cls).__new__(cls)
 
 
+
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		""" Create a new PyVector from an initial list """
 		self._typesafe = typesafe
@@ -151,11 +152,12 @@ class PyVector():
 		return cls(default_element=default_element, dtype=type(default_element), typesafe=typesafe)
 
 
-	def copy(self, new_values = None):
+	def copy(self, new_values = None, name=None):
 		return PyVector(tuple(x for x in (new_values or self._underlying)),
 			default_element = self._default,
 			dtype = self._dtype,
 			typesafe = self._typesafe,
+			name = name,
 			as_row = self._display_as_row)
 
 	def __repr__(self):
@@ -178,7 +180,7 @@ class PyVector():
 		return len(self._underlying)
 
 	def T(self):
-		inverted = self.copy()
+		inverted = self.copy(name = self._name)
 		inverted._display_as_row = not self._display_as_row
 		return inverted
 
@@ -207,24 +209,24 @@ class PyVector():
 		key = self._check_duplicate(key)
 		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
 			assert (len(self) == len(key))
-			return self.copy((x for x, y in zip(self, key, strict=True) if y))
+			return self.copy((x for x, y in zip(self, key, strict=True) if y), name=self._name)
 		if isinstance(key, list) and {type(e) for e in key} == {bool}:
 			assert (len(self) == len(key))
-			return self.copy((x for x, y in zip(self, key, strict=True) if y))
+			return self.copy((x for x, y in zip(self, key, strict=True) if y), name=self._name)
 		if isinstance(key, slice):
-			return self.copy(self._underlying[key])
+			return self.copy(self._underlying[key], name=self._name)
 
 		# NOT RECOMMENDED
 		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors')
-			return self.copy((self[x] for x in key))
+			return self.copy((self[x] for x in key), name=self._name)
 
 		# NOT RECOMMENDED
-		if isinstance(key, list, ) and {type(e) for e in key} == {int}:
+		if isinstance(key, list) and {type(e) for e in key} == {int}:
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors')
-			return self.copy((self[x] for x in key))
+			return self.copy((self[x] for x in key), name=self._name)
 		raise TypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
 
 
@@ -426,17 +428,27 @@ class PyVector():
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)),
 							default_element=(op_func(self._default, other._default) if self._default is not None and other._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
-							typesafe=self._typesafe)
+							name=self._name or other._name if not (self._name and other._name) else None,
+							typesafe=self._typesafe,
+							as_row=self._display_as_row)
 
 		if isinstance(other, self._dtype or object) or self._check_native_typesafe(other):
 			return PyVector(tuple(op_func(x, other) for x in self._underlying),
 							default_element=(op_func(self._default,  other) if self._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
-							typesafe=self._typesafe)
+							typesafe=self._typesafe,
+							name=self._name,
+							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__'):
 			assert len(self) == len(other)
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)), self._default, self._dtype, self._typesafe)
+			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
+				self._default,
+				self._dtype,
+				self._typesafe,
+				self._name,
+				self._display_as_row
+				)
 
 		raise TypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
@@ -471,17 +483,26 @@ class PyVector():
 			return PyVector(tuple(y + x for x, y in zip(self, other, strict=True)),
 							default_element=(other._default + self._default if self._default is not None and other._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
-							typesafe=self._typesafe)
+							name=self._name or other._name if not (self._name and other._name) else None,
+							typesafe=self._typesafe,
+							as_row=self._display_as_row)
 
 		if isinstance(other, self._dtype or object) or self._check_native_typesafe(other):
 			return PyVector(tuple(other + x for x in self.cols()),
 							default_element=(other + self._default if self._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
-							typesafe=self._typesafe)
+							name=self._name,
+							typesafe=self._typesafe,
+							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__'):
 			assert len(self) == len(other)
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)), self._default, self._dtype, self._typesafe)
+			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
+				self._default,
+				self._dtype,
+				self._typesafe,
+				self._name,
+				self._display_as_row)
 		return self + other
 
 	def __rmul__(self, other):
@@ -533,29 +554,29 @@ class PyVector():
 	Recursive Vector Operations
 	"""
 	def max(self):
-		if self.ndims() > 1:
-			return self.copy((c.max() for c in self.cols()))
+		if self.ndims() == 2:
+			return self.copy((c.max() for c in self.cols())).T()
 		return max(self)
 
 	def min(self):
-		if self.ndims() > 1:
-			return self.copy((c.min() for c in self.cols()))
+		if self.ndims() == 2:
+			return self.copy((c.min() for c in self.cols())).T()
 		return min(self)
 
 	def sum(self):
-		if self.ndims() > 1:
-			return self.copy((c.sum() for c in self.cols()))
+		if self.ndims() == 2:
+			return self.copy((c.sum() for c in self.cols())).T()
 		return sum(self)
 
 
 	def mean(self):
-		if self.ndims() > 1:
-			return self.copy((c.mean() for c in self.cols()))
+		if self.ndims() == 2:
+			return self.copy((c.mean() for c in self.cols())).T()
 		return sum(self._underlying) / len(self._underlying)
 
 	def stdev(self, population=False):
-		if self.ndims() > 1:
-			return self.copy((c.stdev(population) for c in self.cols()))
+		if self.ndims() == 2:
+			return self.copy((c.stdev(population) for c in self.cols())).T()
 		m = self.mean()
 
 		# use in-place sum over generator for fastness. I AM SPEED!
@@ -704,7 +725,12 @@ class PyTable(PyVector):
 
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		self._length = len(initial[0]) if initial else 0
-		return super().__init__(initial, default_element=default_element, dtype=dtype, typesafe=typesafe, name=name)
+		return super().__init__(
+			initial,
+			default_element=default_element,
+			dtype=dtype,
+			typesafe=typesafe,
+			name=name)
 
 	def __len__(self):
 		if not self:
@@ -739,10 +765,15 @@ class PyTable(PyVector):
 			# for now.
 			if len(key) > 2:
 				return self[key[0]][key[1:]]
-			if isinstance(key[1], slice):
-				if isinstance(key[0], slice):
-					return self.copy(self[key[0]]._underlying[key[1]])
-				return self[key[0]][key[1]]
+			#if isinstance(key[1], slice):
+			#	if isinstance(key[0], slice):
+			#		return self.copy(self[key[0]]._underlying[key[1]])
+			#	return self[key[0]][key[1]]
+			#return self[key[0]]._underlying[key[1]]
+			if isinstance(key[0], slice):
+				if isinstance(key[1], int):
+					return self.cols(key[1])[key[0]]
+				return self.copy([col[key[0]] for col in self.cols()[key[1]]])
 			return self[key[0]]._underlying[key[1]]
 
 
@@ -775,7 +806,8 @@ class PyTable(PyVector):
 			return PyVector(tuple(x[key] for x in self._underlying), 
 				default_element = self._default,
 				dtype = self._dtype,
-				typesafe = self._typesafe
+				typesafe = self._typesafe,
+				name=name
 			)
 
 		# NOT RECOMMENDED
@@ -886,7 +918,13 @@ class _PyFloat(PyVector):
 		return super(PyVector, cls).__new__(cls)
 
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		return super().__init__(initial, default_element=default_element, dtype=float, typesafe=typesafe, name=name)
+		return super().__init__(
+			initial,
+			default_element=default_element,
+			dtype=float,
+			typesafe=typesafe,
+			name=name,
+			as_row=as_row)
 
 	def __getattr__(self, name):
 		""" get float attributes first (numerator, denominator, real, etc.) """
@@ -934,7 +972,13 @@ class _PyInt(PyVector):
 		return super(PyVector, cls).__new__(cls)
 
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		return super().__init__(initial, default_element=default_element, dtype=int, typesafe=typesafe, name=name, as_row=as_row)
+		return super().__init__(
+			initial,
+			default_element=default_element,
+			dtype=int,
+			typesafe=typesafe,
+			name=name,
+			as_row=as_row)
 
 	def __getattr__(self, name):
 		""" get integer attributes first (numerator, denominator, real, etc.) """
@@ -993,7 +1037,13 @@ class _PyString(PyVector):
 		return super(PyVector, cls).__new__(cls)
 
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		return super().__init__(initial, default_element=default_element, dtype=str, typesafe=typesafe, name=name, as_row=as_row)
+		return super().__init__(
+			initial,
+			default_element=default_element,
+			dtype=str,
+			typesafe=typesafe,
+			name=name,
+			as_row=as_row)
 
 	def capitalize(self):
 		""" Call the internal capitalize method on string """
@@ -1189,7 +1239,13 @@ class _PyDate(PyVector):
 		return super(PyVector, cls).__new__(cls)
 
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None):
-		return super().__init__(initial, default_element=default_element, dtype=date, typesafe=typesafe, name=name, as_row=as_row)
+		return super().__init__(
+			initial,
+			default_element=default_element,
+			dtype=date,
+			typesafe=typesafe,
+			name=name,
+			as_row=as_row)
 
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)
