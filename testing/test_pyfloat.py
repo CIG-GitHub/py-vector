@@ -1,0 +1,61 @@
+"""_PyFloat specific tests - float method proxying"""
+import pytest
+from py_vector import PyVector, _PyFloat
+
+
+class TestFloatCreation:
+    """Test _PyFloat automatic creation"""
+    
+    def test_auto_creates_pyfloat(self):
+        v = PyVector([1.5, 2.5, 3.5])
+        assert isinstance(v, _PyFloat)
+        assert v._dtype == float
+    
+    def test_mixed_int_float_creates_pyfloat(self):
+        v = PyVector([1, 2.5, 3])
+        assert isinstance(v, _PyFloat)
+        assert v._dtype == float
+        assert list(v) == [1.0, 2.5, 3.0]
+
+
+class TestFloatMethods:
+    """Test float method proxying"""
+    
+    def test_as_integer_ratio(self):
+        v = PyVector([0.5, 0.25, 0.75])
+        result = v.as_integer_ratio()
+        assert isinstance(result, PyVector)
+        assert len(result) == 3
+        # 0.5 = 1/2, 0.25 = 1/4, 0.75 = 3/4
+        assert result[0] == (1, 2)
+    
+    def test_is_integer(self):
+        v = PyVector([1.0, 2.5, 3.0])
+        result = v.is_integer()
+        assert isinstance(result, PyVector)
+        assert list(result) == [True, False, True]
+    
+    def test_hex(self):
+        v = PyVector([1.5, 2.0])
+        result = v.hex()
+        assert isinstance(result, PyVector)
+        assert len(result) == 2
+        # Just check they're strings
+        for x in result:
+            assert isinstance(x, str)
+
+
+class TestFloatOperations:
+    """Test operations on float vectors"""
+    
+    def test_division_preserves_float(self):
+        v = PyVector([1.0, 2.0, 3.0])
+        result = v / 2
+        assert isinstance(result, PyVector)
+        assert result._dtype == float
+        assert list(result) == [0.5, 1.0, 1.5]
+    
+    def test_comparison_with_floats(self):
+        v = PyVector([1.5, 2.5, 3.5])
+        result = v > 2.0
+        assert list(result) == [False, True, True]

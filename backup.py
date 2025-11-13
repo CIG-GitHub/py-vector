@@ -68,6 +68,8 @@ def _recursive_colnames(pv):
 		if len(all_colnames) == 1:
 			return all_colnames.pop()
 		return tuple(None for _ in all_colnames.pop())
+	if len(pv.size()) == 1:
+		return ('',)
 	names = tuple(c._name or '' for c in pv.cols())
 	return names
 
@@ -86,15 +88,17 @@ def printr(pv, outer=True, opener='', closer='', joiner='', warning=''):
 		closer = ']'
 		footer = format_footer(pv)
 
-
+	# Still a lot of work to do for multi-dimensional arrays
 	if len(pv.size()) == 2:
 		out = '['
 		if len(pv) == 0:
 			return '[[]]'
 		elif len(pv.cols()) <= 10:
 			for x, y in zip(pv.cols()[:-1], col_headers[:-1], strict=True):
+				# the name and element width are handled together.
 				out += _format_col(x, name_label = y) + ', '
-			out += _format_col(pv.cols()[-1], name_label=col_headers[-1]) + ']'
+			out += _format_col(pv.cols()[-1], name_label=col_headers[-1]) + '],'
+			out[-1] = out[-1][:-1] # remove the final comma
 		else:
 			cols = pv.cols()
 			for x, y in zip(cols[:4], col_headers[:4], strict=True):
@@ -103,12 +107,16 @@ def printr(pv, outer=True, opener='', closer='', joiner='', warning=''):
 			out += ' ... '
 			for x, y in zip(cols[-5:-1], col_headers[-5:-1]):
 				out += _format_col(x, y) + ', '
-			out += _format_col(cols[-1], col_headers[-1]) + ']'
+			out += _format_col(cols[-1], col_headers[-1]) + '],'
+			out[-1] = out[-1][:-1] # remove the final comma
+	if len(pv.size()) == 1:
+		out = _format_col(pv, name_label = '') + ','
+		out[-1] = out[-1][:-1] # remove the final comma
 
-	if col_headers:
-		return header  + 'cols=  (' + out[0][1:-1] + '),\n' + opener + '\n       '.join(out[1:]) + closer + footer
+	if any(col_headers):
+		return header  + 'cols=  (' + out[0][1:-2] + '),\n' + opener + '\n       '.join(out[1:]) + closer + footer
 
-	return header + opener + ',\n       '.join(out) + closer + footer
+	return header + opener + '\n       '.join(out[1:]) + closer + footer
 """
 	if len(pv.size()) > 5:
 		opener = '['
