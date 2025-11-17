@@ -85,7 +85,7 @@ def format_footer(pv, col_dtypes=None):
 	if len(pv.size()) == 1:
 		# Vector
 		dtype_name = pv._dtype.__name__ if pv._dtype else 'object'
-		return f"# {len(pv)} element array <{dtype_name}>"
+		return f"# {len(pv)} element vector <{dtype_name}>"
 	elif len(pv.size()) == 2:
 		# Table
 		if col_dtypes:
