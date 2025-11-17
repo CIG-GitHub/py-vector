@@ -39,25 +39,32 @@ def _str_to_repr(head, tail, joiner):
 	pass
 
 
-def _format_col(col, name_label=None, num_rows = 5):
-	""" return a PyVector of formatted values """
-	und = col._underlying if len(col)<=num_rows*2 else col._underlying[:num_rows] + col._underlying[-num_rows-1:]
-	if col._dtype == float:
-		x = PyVector([f"{v: g}" for v in und])
-	elif col._dtype == int:
-		x = PyVector([f"{v: d}" for v in und])
-	elif col._dtype == str:
-		x = PyVector([f"'{v}'" for v in und])
+def _format_col(col, num_rows=5):
+	"""Format a column as a string vector with truncation and alignment."""
+	# Handle truncation
+	if len(col) <= num_rows * 2:
+		und = col._underlying
 	else:
-		x = PyVector([f"{repr(v)}" for v in und])
-	max_len = max({len(v) for v in x})
-	if name_label is not None:
-		name_label = f"'{name_label}'"
-		if len(name_label) < max_len:
-			name_label = name_label.ljust((max_len + len(name_label))//2).rjust(max_len)
-		max_len = max(len(name_label), max_len)
-		x = PyVector([name_label]) << x
-	return x.rjust(max_len)
+		und = col._underlying[:num_rows] + ['...'] + col._underlying[-num_rows:]
+	
+	# Format values based on dtype
+	if col._dtype == float:
+		str_vec = PyVector([f"{val:g}" if val != '...' else val for val in und])
+	elif col._dtype == int:
+		str_vec = PyVector([str(val) if val != '...' else val for val in und])
+	elif col._dtype == date:
+		str_vec = PyVector([val.isoformat() if val != '...' else val for val in und])
+	elif col._dtype == str:
+		str_vec = PyVector([repr(val) if val != '...' else val for val in und])
+	else:
+		str_vec = PyVector([str(val) for val in und])
+	
+	# Right-align numeric columns, left-align others
+	max_len = max(len(val) for val in str_vec)
+	if col._dtype in (int, float):
+		return str_vec.rjust(max_len)
+	else:
+		return str_vec.ljust(max_len)
 
 def _recursive_colnames(pv):
 	if len(pv.size()) > 2:
@@ -71,49 +78,87 @@ def _recursive_colnames(pv):
 	return names
 
 
-def format_footer(pv):
-	base = f"\n) # {'x'.join([str(s) for s in pv.size()])}"
-	identifier = ' table' if len(pv.size()) > 1 else ' element array'
-	dataclass = f" <{pv._dtype.__name__}>" if pv._dtype else ''
-	return base + identifier + dataclass
-
-def _printr(pv, outer=True, opener='', closer='', joiner='', warning=''):
-	if outer:
-		header = f'PyVector(name={repr(pv._name)},\n' if pv._name else 'PyVector(\n'
-		opener = 'rows= ['
-		col_headers = _recursive_colnames(pv)
-		closer = ']'
-		footer = format_footer(pv)
-
-	# Still a lot of work to do for multi-dimensional arrays
-	if len(pv.size()) == 2:
-		out = '['
-		if len(pv) == 0:
-			return '[[]]'
-		elif len(pv.cols()) <= 10:
-			for x, y in zip(pv.cols()[:-1], col_headers[:-1], strict=True):
-				# the name and element width are handled together.
-				out += _format_col(x, name_label = y) + ', '
-			out += _format_col(pv.cols()[-1], name_label=col_headers[-1]) + '],'
-			out[-1] = out[-1][:-1] # remove the final comma
-		else:
-			cols = pv.cols()
-			for x, y in zip(cols[:4], col_headers[:4], strict=True):
-				out += _format_col(x) + ', '
-			out += _format_col(cols[4], col_headers[4], strict=True)
-			out += ' ... '
-			for x, y in zip(cols[-5:-1], col_headers[-5:-1]):
-				out += _format_col(x, y) + ', '
-			out += _format_col(cols[-1], col_headers[-1]) + '],'
-			out[-1] = out[-1][:-1] # remove the final comma
+def format_footer(pv, col_dtypes=None):
+	"""Generate clean footer line."""
+	shape = '×'.join(str(s) for s in pv.size())
+	
 	if len(pv.size()) == 1:
-		out = _format_col(pv, name_label = '') + ','
-		out[-1] = out[-1][:-1] # remove the final comma
+		# Vector
+		dtype_name = pv._dtype.__name__ if pv._dtype else 'object'
+		return f"# {len(pv)} element array <{dtype_name}>"
+	elif len(pv.size()) == 2:
+		# Table
+		if col_dtypes:
+			dtype_str = ', '.join(col_dtypes)
+		else:
+			dtype_str = pv._dtype.__name__ if pv._dtype else 'object'
+		return f"# {shape} table <{dtype_str}>"
+	else:
+		# Tensor
+		dtype_str = pv._dtype.__name__ if pv._dtype else 'object'
+		return f"# {shape} tensor <{dtype_str}>"
 
-	if any(col_headers):
-		return header  + 'cols=  (' + out[0][1:-2] + '),\n' + opener + '\n       '.join(out[1:]) + closer + footer
-
-	return header + opener + '\n       '.join(out[1:]) + closer + footer
+def _printr(pv):
+	"""Clean display-focused repr."""
+	if len(pv.size()) == 1:
+		# 1D vector
+		formatted = _format_col(pv)
+		lines = []
+		# Add name as first line if present
+		if pv._name:
+			lines.append(pv._name)
+		lines.extend(formatted._underlying)
+		lines.append('')
+		lines.append(format_footer(pv))
+		return '\n'.join(lines)
+	
+	elif len(pv.size()) == 2:
+		# 2D table
+		cols = pv.cols()
+		if len(cols) == 0:
+			return '# 0×0 table'
+		
+		# Get column names and dtypes
+		col_names = []
+		col_dtypes = []
+		formatted_cols = []
+		
+		for idx, col in enumerate(cols, 1):
+			name = col._name or f'col_{idx}'
+			col_names.append(name)
+			dtype_name = col._dtype.__name__ if col._dtype else 'object'
+			col_dtypes.append(dtype_name)
+			formatted_cols.append(_format_col(col))
+		
+		# Adjust column widths to fit headers
+		aligned_cols = []
+		aligned_names = []
+		for name, col, fmt_col in zip(col_names, cols, formatted_cols):
+			width = max(len(name), max(len(cell) for cell in fmt_col._underlying))
+			# Re-align to new width
+			if col._dtype in (int, float):
+				aligned_cols.append(fmt_col.rjust(width))
+				aligned_names.append(name.rjust(width))
+			else:
+				aligned_cols.append(fmt_col.ljust(width))
+				aligned_names.append(name.ljust(width))
+		
+		# Build output
+		lines = []
+		lines.append('  '.join(aligned_names))
+		
+		# Zip columns into rows
+		for row_idx in range(len(aligned_cols[0])):
+			row = '  '.join(col._underlying[row_idx] for col in aligned_cols)
+			lines.append(row)
+		
+		lines.append('')
+		lines.append(format_footer(pv, col_dtypes))
+		return '\n'.join(lines)
+	
+	else:
+		# Tensor (not implemented)
+		return format_footer(pv) + ' (repr not yet implemented)'
 
 
 class PyVector():
@@ -295,11 +340,13 @@ class PyVector():
 
 
 	def copy(self, new_values = None, name=None):
+		# Preserve name if not explicitly overridden
+		use_name = name if name is not None else self._name
 		return PyVector(list(new_values or self._underlying),
 			default_element = self._default,
 			dtype = self._dtype,
 			typesafe = self._typesafe,
-			name = name,
+			name = use_name,
 			as_row = self._display_as_row)
 
 	def __repr__(self):
@@ -860,8 +907,8 @@ class PyTable(PyVector):
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		self._length = len(initial[0]) if initial else 0
 		
-		# Deep copy vectors to prevent mutation leakage
-		initial = [vec.copy() for vec in initial] if initial else []
+		# Store original column references (not copies)
+		# This allows mutations to the original columns to be reflected in the table
 		
 		return super().__init__(
 			initial,
