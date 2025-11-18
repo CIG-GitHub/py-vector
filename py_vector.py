@@ -350,6 +350,11 @@ class PyVector():
 			name = use_name,
 			as_row = self._display_as_row)
 
+	def rename(self, new_name):
+		"""Rename this vector (returns self for chaining)"""
+		self._name = new_name
+		return self
+
 	def __repr__(self):
 		return(_printr(self))
 
@@ -918,6 +923,50 @@ class PyTable(PyVector):
 			idx = [c._name for c in self._underlying].index(attr)
 			return self._underlying[idx]
 
+	def rename_column(self, old_name, new_name):
+		"""Rename a column (modifies in place, returns self for chaining)"""
+		for col in self._underlying:
+			if col._name == old_name:
+				col._name = new_name
+				return self
+		raise KeyError(f"Column '{old_name}' not found")
+	
+	def rename_columns(self, old_names, new_names):
+		"""
+		Atomically rename multiple columns using parallel old_names and new_names lists.
+
+		Rules:
+		- old_names and new_names must be same length
+		- each list-element renames EXACTLY ONE matching occurrence
+		(left-to-right positional matching)
+		- if renaming fails (old name not found), no columns are renamed and KeyError is raised
+		"""
+
+		if len(old_names) != len(new_names):
+			raise ValueError("old_names and new_names must have the same length")
+
+		# Simulate renames using a temporary list (avoid mid-state partial renames)
+		simulated = [col._name for col in self._underlying]
+
+		for old, new in zip(old_names, new_names):
+			try:
+				idx = simulated.index(old)
+			except ValueError:
+				raise KeyError(f"Column '{old}' not found")
+			simulated[idx] = new  # simulate rename
+
+		# Apply renames for real
+		rename_idx = 0
+		for old, new in zip(old_names, new_names):
+			# rename the FIRST matching column in the real table
+			for col in self._underlying:
+				if col._name == old:
+					col._name = new
+					break
+
+		return self
+
+
 	@property
 	def T(self):
 		if len(self.size())==2:
@@ -963,11 +1012,7 @@ class PyTable(PyVector):
 			# for now.
 			if len(key) > 2:
 				return self[key[0]][key[1:]]
-			#if isinstance(key[1], slice):
-			#	if isinstance(key[0], slice):
-			#		return self.copy(self[key[0]]._underlying[key[1]])
-			#	return self[key[0]][key[1]]
-			#return self[key[0]]._underlying[key[1]]
+
 			if isinstance(key[0], slice):
 				if isinstance(key[1], int):
 					return self.cols(key[1])[key[0]]
@@ -1025,31 +1070,12 @@ class PyTable(PyVector):
 
 	def __repr__(self):
 		return _printr(self)
-		#out = '['
-		#if len(self) == 0:
-		#	return '[[]]'
-		#elif len(self._underlying) <= 10:
-		#	for x in self._underlying[:-1]:
-		#		out += _format_col(x) + ', '
-		#	out += _format_col(self._underlying[-1]) + ']'
-		#else:
-		#	cols = self._underlying
-		#	for x in cols[:4]:
-		#		out += _format_col(x) + ', '
-		#	out += _format_col(cols[4])
-		#	out += ' ... '
-		#	for x in cols[-5:-1]:
-		#		out += _format_col(x) + ', '
-		#	out += _format_col(cols[-1]) + ']'
-		#return repr(out)
 
 	def __matmul__(self, other):
 		if isinstance(other, PyVector): #reverse this soon
 			# we want the sum to operate 'in place' on integers
 			if other.ndims() == 1:
 				return PyVector(tuple(sum(u*v for u, v in zip(s._underlying, other._underlying)) for s in self))
-			# return PyVector(tuple(self@c for c in other.cols()))
-			# return PyVector(tuple(PyVector(tuple(sum((u*v for u, v in zip(x._underlying, y._underlying))) for x in other.cols())) for y in self)).T
 			return self.copy(tuple(self.copy(tuple(x@y for x in other.cols())) for y in self)).T
 		return super().__matmul__(other)
 
