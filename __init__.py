@@ -17,6 +17,7 @@ Type-specific subclasses (auto-created):
 Zero external dependencies - pure Python stdlib only.
 """
 
+from _alias_tracker import _ALIAS_TRACKER, AliasError
 from py_vector import PyVector, PyTable, _PyFloat, _PyInt, _PyString, _PyDate
 
 __version__ = "0.1.0"

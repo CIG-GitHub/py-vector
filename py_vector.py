@@ -339,9 +339,10 @@ class PyVector():
 		return cls(default_element=default_element, dtype=type(default_element), typesafe=typesafe)
 
 
-	def copy(self, new_values = None, name=None):
+	def copy(self, new_values = None, name=...):
 		# Preserve name if not explicitly overridden
-		use_name = name if name is not None else self._name
+		# Use sentinel value (...) to distinguish between name=None (clear) and not passing name (preserve)
+		use_name = self._name if name is ... else name
 		return PyVector(list(new_values or self._underlying),
 			default_element = self._default,
 			dtype = self._dtype,
@@ -593,7 +594,7 @@ class PyVector():
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)),
 							default_element=(op_func(self._default, other._default) if self._default is not None and other._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
-							name=self._name or other._name if not (self._name and other._name) else None,
+							name=None,
 							typesafe=self._typesafe,
 							as_row=self._display_as_row)
 
@@ -602,7 +603,7 @@ class PyVector():
 							default_element=(op_func(self._default,  other) if self._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
 							typesafe=self._typesafe,
-							name=self._name,
+							name=None,
 							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__'):
@@ -611,7 +612,7 @@ class PyVector():
 				self._default,
 				self._dtype,
 				self._typesafe,
-				self._name,
+				None,
 				self._display_as_row
 				)
 
@@ -648,7 +649,7 @@ class PyVector():
 			return PyVector(tuple(y + x for x, y in zip(self, other, strict=True)),
 							default_element=(other._default + self._default if self._default is not None and other._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
-							name=self._name or other._name if not (self._name and other._name) else None,
+							name=None,
 							typesafe=self._typesafe,
 							as_row=self._display_as_row)
 
@@ -656,7 +657,7 @@ class PyVector():
 			return PyVector(tuple(other + x for x in self.cols()),
 							default_element=(other + self._default if self._default is not None else None),
 							dtype=self._dtype if self._typesafe else None,
-							name=self._name,
+							name=None,
 							typesafe=self._typesafe,
 							as_row=self._display_as_row)
 
@@ -666,7 +667,7 @@ class PyVector():
 				self._default,
 				self._dtype,
 				self._typesafe,
-				self._name,
+				None,
 				self._display_as_row)
 		return self + other
 
@@ -720,28 +721,28 @@ class PyVector():
 	"""
 	def max(self):
 		if self.ndims() == 2:
-			return self.copy((c.max() for c in self.cols())).T
+			return self.copy((c.max() for c in self.cols()), name=None).T
 		return max(self)
 
 	def min(self):
 		if self.ndims() == 2:
-			return self.copy((c.min() for c in self.cols())).T
+			return self.copy((c.min() for c in self.cols()), name=None).T
 		return min(self)
 
 	def sum(self):
 		if self.ndims() == 2:
-			return self.copy((c.sum() for c in self.cols())).T
+			return self.copy((c.sum() for c in self.cols()), name=None).T
 		return sum(self)
 
 
 	def mean(self):
 		if self.ndims() == 2:
-			return self.copy((c.mean() for c in self.cols())).T
+			return self.copy((c.mean() for c in self.cols()), name=None).T
 		return sum(self._underlying) / len(self._underlying)
 
 	def stdev(self, population=False):
 		if self.ndims() == 2:
-			return self.copy((c.stdev(population) for c in self.cols())).T
+			return self.copy((c.stdev(population) for c in self.cols()), name=None).T
 		m = self.mean()
 
 		# use in-place sum over generator for fastness. I AM SPEED!
@@ -880,6 +881,10 @@ class PyTable(PyVector):
 		return super(PyVector, cls).__new__(cls)
 
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+		# Handle dict initialization {name: values, ...}
+		if isinstance(initial, dict):
+			initial = [PyVector(values, name=col_name) for col_name, values in initial.items()]
+		
 		self._length = len(initial[0]) if initial else 0
 		
 		# Deep copy columns to enforce value semantics
@@ -928,6 +933,30 @@ class PyTable(PyVector):
 
 	def __getitem__(self, key):
 		key = self._check_duplicate(key)
+		
+		# Handle string indexing for column names
+		if isinstance(key, str):
+			# Single column selection by name
+			for col in self._underlying:
+				if col._name == key:
+					return col
+			raise KeyError(f"Column '{key}' not found")
+		
+		# Handle tuple of strings for multi-column selection
+		if isinstance(key, tuple) and all(isinstance(k, str) for k in key):
+			# Multiple column selection by names
+			selected_cols = []
+			for col_name in key:
+				found = False
+				for col in self._underlying:
+					if col._name == col_name:
+						selected_cols.append(col.copy())  # Copy to preserve original
+						found = True
+						break
+				if not found:
+					raise KeyError(f"Column '{col_name}' not found")
+			return PyTable(selected_cols)
+		
 		if isinstance(key, tuple):
 			if len(key) != len(self.size()):
 				raise KeyError(f'Matrix indexing must provide an index in each dimension: {self.size()}')
