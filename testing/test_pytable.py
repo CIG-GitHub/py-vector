@@ -58,8 +58,12 @@ class TestColumnAccess:
         col1 = PyVector([1, 2, 3], name='a')
         col2 = PyVector([4, 5, 6], name='b')
         table = PyVector([col1, col2])
-        assert table.a is col1
-        assert table.b is col2
+        # Value semantics: table receives copies, not references
+        assert list(table.a) == list(col1)
+        assert list(table.b) == list(col2)
+        # Verify they are different objects (value semantics, not reference)
+        assert id(table.a) != id(col1)
+        assert id(table.b) != id(col2)
 
 
 class TestRowAccess:
@@ -177,16 +181,3 @@ class TestConcatenation:
         # Each column should be extended
         assert len(result.cols()[0]) == 4
         assert list(result.cols()[0]) == [1, 2, 3, 7]
-
-
-class TestTableFingerprint:
-    """Test fingerprint for tables"""
-    
-    def test_table_fingerprint_changes_on_column_mutation(self):
-        col1 = PyVector([1, 2, 3])
-        col2 = PyVector([4, 5, 6])
-        table = PyVector([col1, col2])
-        fp1 = table.fingerprint()
-        col1[0] = 999  # Mutate a column
-        fp2 = table.fingerprint()
-        assert fp1 != fp2

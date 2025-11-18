@@ -1,6 +1,7 @@
 import operator
 import warnings
 
+from _alias_tracker import _ALIAS_TRACKER, AliasError
 from copy import deepcopy
 from datetime import date
 from datetime import datetime
@@ -19,21 +20,6 @@ def slice_length(s: slice, sequence_length: int) -> int:
 	"""
 	start, stop, step = s.indices(sequence_length)
 	return max(0, (stop - start + (step - (1 if step > 0 else -1))) // step)
-
-
-#def _format_col(col, num_rows = 5):
-#	""" return a PyVector of formatted values """
-#	und = col._underlying if len(col)<=num_rows*2 else col._underlying[:num_rows] + col._underlying[-num_rows-1:]
-#	if col._dtype == float:
-#		x = PyVector([f"{v: g}" for v in und])
-#	elif col._dtype == int:
-#		x = PyVector([f"{v: d}" for v in und])
-#	elif col._dtype == str:
-#		x = PyVector([f"'{v}'" for v in und])
-#	else:
-#		x = PyVector([f"{v}" for v in und])
-#	max_len = {len(v) for v in x}
-#	return x.rjust(max(max_len))
 
 def _str_to_repr(head, tail, joiner):
 	pass
@@ -252,15 +238,18 @@ class PyVector():
 				self._dtype = None
 
 		if promote:
-			self._underlying = list(x + 0.0 if self._dtype == float else x for x in initial)
+			self._underlying = tuple(x + 0.0 if self._dtype == float else x for x in initial)
 		else:
-			self._underlying = list(initial)
+			self._underlying = tuple(initial)
 		
 		# Initialize fingerprint for O(1) change detection
 		self._fp = self._compute_fp(self._underlying)
 		self._fp_powers = [1]
 		for _ in range(len(self._underlying)):
 			self._fp_powers.append((self._fp_powers[-1] * self._FP_B) % self._FP_P)
+		
+		# Register with alias tracker after full initialization
+		_ALIAS_TRACKER.register(self, id(self._underlying))
 
 	@staticmethod
 	def _compute_fp(data):
@@ -296,13 +285,13 @@ class PyVector():
 		Returns an integer hash that changes when the vector is modified.
 		"""
 		if self.ndims() == 1:
-			# Simple vector: return stored fingerprint
+			# Simple vector: return stored fingerprint (O(1))
 			return self._fp
 		
 		# Table/nested: hash from column fingerprints
 		return hash(tuple(col.fingerprint() for col in self.cols()))
 
-	def _update_fp_single(self, i, old, new):
+	def _update_fp_single(self, idx, old, new):
 		"""O(1) update fingerprint when replacing element at index i"""
 		# Get hashes
 		if hasattr(old, '_fp'):
@@ -322,8 +311,19 @@ class PyVector():
 				new_hash = hash(tuple(new)) if hasattr(new, '__iter__') else hash(str(new))
 		
 		# Update rolling hash
-		diff = (new_hash - old_hash) * self._fp_powers[len(self) - i - 1]
+		diff = (new_hash - old_hash) * self._fp_powers[len(self) - idx - 1]
 		self._fp = (self._fp + diff) % self._FP_P
+
+	def _fp_update_multi(self, updates):
+		"""O(k) fingerprint update for k changes. updates = list of (index, old_value, new_value)"""
+		fp = self._fp
+		for idx, old_v, new_v in updates:
+			old_h = hash(old_v) if not hasattr(old_v, '_fp') else old_v._fp
+			new_h = hash(new_v) if not hasattr(new_v, '_fp') else new_v._fp
+			position_weight = self._fp_powers[len(self) - 1 - idx]
+			diff = (new_h - old_h) * position_weight
+			fp = (fp + diff) % self._FP_P
+		self._fp = fp
 
 	def rename(self, new_name):
 		if new_name.startswith('_'):
@@ -351,14 +351,6 @@ class PyVector():
 
 	def __repr__(self):
 		return(_printr(self))
-		#joiner = ', ' if self._display_as_row else ',\n  '
-		#if len(self) == 0:
-		#	return 'PyVector([])'
-		#elif len(self) <= 10:
-		#	return 'PyVector([\n  ' + joiner.join([str(x) for x in self._underlying]) + '\n]'
-		#return '[\n  ' + joiner.join([str(x) for x in self._underlying[:5]]) + \
-		#    joiner + '...' + joiner[1:] + joiner.join([str(x) for x in self._underlying[-5:]]) + \
-		#    '\n]' + f' # {len(self)} {self._dtype.__name__}'
 
 	@property
 	def _(self):
@@ -429,113 +421,105 @@ class PyVector():
 	def __setitem__(self, key, value):
 		"""
 		Set the item at the specified index (key) with the provided value.
+		Mutates self in place with alias tracking.
 		Supports boolean indexing, slicing, and standard indexing.
-		
-		- If key is a boolean mask, assigns values where True.
-		- If key is a slice, assigns values in the slice.
-		- Handles type safety through PyVector, and ensures lengths match when necessary.
 		"""
-		# Perform duplicate checks on key and value, assuming self._check_duplicate handles it.
+		# Check for aliasing before any mutation
+		_ALIAS_TRACKER.check_writable(self, id(self._underlying))
+		
 		key = self._check_duplicate(key)
 		value = self._check_duplicate(value)
+		
+		# Collect updates as (index, new_value) pairs
+		updates = []
 		
 		# Handle boolean vector or list as key
 		if (isinstance(key, PyVector) and key._dtype == bool and key._typesafe) \
 			or (isinstance(key, list) and {type(e) for e in key} == {bool}):
 			
-			# Ensure the key (mask) is the same length as the current vector
 			assert len(self) == len(key), "Boolean mask length must match vector length."
 
-			# If value is an iterable, ensure its length matches the number of True elements in key
 			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
 				assert sum(key) == len(value), "Iterable length must match the number of True elements in the mask."
-				
-				# Replace based on mask (True/False positions)
 				iter_v = iter(value)
-				for i, mask_value in enumerate(key):
-					if not mask_value:
-						continue
-					old = self._underlying[i]
-					new = next(iter_v)
-					self._underlying[i] = new
-					self._update_fp_single(i, old, new)
+				for idx, mask_value in enumerate(key):
+					if mask_value:
+						updates.append((idx, next(iter_v)))
 			else:
-				# Replace all True positions with the same value
-				for i, mask_value in enumerate(key):
-					if not mask_value:
-						continue
-					old = self._underlying[i]
-					self._underlying[i] = value
-					self._update_fp_single(i, old, value)
-			return
-
+				for idx, mask_value in enumerate(key):
+					if mask_value:
+						updates.append((idx, value))
+		
 		# Handle slice assignment
-		if isinstance(key, slice):
-			# Ensure that if value is an iterable, its length matches the slice length
+		elif isinstance(key, slice):
 			slice_len = slice_length(key, len(self))
 			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
 				if slice_len != len(value):
 					raise ValueError("Slice length and value length must be the same.")
 				values_to_assign = value
 			else:
-				# need an iterable of the same length as the slice
 				values_to_assign = [value for _ in range(slice_len)]
 
-			# Get the actual indices from the slice
 			start, stop, step = key.indices(len(self))
 			indices = range(start, stop, step)
 			
-			# Update elements with O(1) fingerprint updates
-			for i, new_val in zip(indices, values_to_assign):
-				old = self._underlying[i]
-				self._underlying[i] = new_val
-				self._update_fp_single(i, old, new_val)
-			return
-
+			for idx, new_val in zip(indices, values_to_assign):
+				updates.append((idx, new_val))
+		
 		# Single integer index assignment
-		if isinstance(key, int):
-			# Ensure the index is valid
+		elif isinstance(key, int):
 			if not (-len(self) <= key < len(self)):
 				raise IndexError(f"Index {key} is out of bounds for vector of length {len(self)}")
-			old = self._underlying[key]
-			self._underlying[key] = value
-			self._update_fp_single(key, old, value)
-			return
-
+			updates.append((key, value))
+		
 		# Subscript indexing with PyVector of integers
-		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
+		elif isinstance(key, PyVector) and key._dtype == int and key._typesafe:
 			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
 				if len(key) != len(value):
 					raise ValueError("Number of indices must match the length of values.")
 				for idx, val in zip(key, value):
-					old = self._underlying[idx]
-					self._underlying[idx] = val
-					self._update_fp_single(idx, old, val)
+					updates.append((idx, val))
 			else:
 				for idx in key:
-					old = self._underlying[idx]
-					self._underlying[idx] = value
-					self._update_fp_single(idx, old, value)
-			return
-
+					updates.append((idx, value))
+		
 		# List or tuple of integers
-		if isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
+		elif isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
 			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
 				if len(key) != len(value):
 					raise ValueError("Number of indices must match the length of values.")
 				for idx, val in zip(key, value):
-					old = self._underlying[idx]
-					self._underlying[idx] = val
-					self._update_fp_single(idx, old, val)
+					updates.append((idx, val))
 			else:
 				for idx in key:
-					old = self._underlying[idx]
-					self._underlying[idx] = value
-					self._update_fp_single(idx, old, value)
-			return
+					updates.append((idx, value))
+		else:
+			raise TypeError(f"Invalid key type: {type(key)}. Must be boolean vector, integer vector, slice, or single index.")
+		
+		# Copy-on-write: convert to list, apply mutations, convert back to tuple
+		data = list(self._underlying)
+		
+		# Apply mutations and track for fingerprint
+		fp_updates = []
+		for idx, new_val in updates:
+			old_val = data[idx]
+			data[idx] = new_val
+			fp_updates.append((idx, old_val, new_val))
+		
+		# Convert back to tuple
+		new_tuple = tuple(data)
+		
+		# Unregister old tuple identity before registering new one
+		old_tuple_id = id(self._underlying)
 
-		# If none of the cases match, raise a TypeError
-		raise TypeError(f"Invalid key type: {type(key)}. Must be boolean vector, integer vector, slice, or single index.")
+		# Update and re-register with alias tracker
+		_ALIAS_TRACKER.unregister(self, old_tuple_id)
+		self._underlying = new_tuple
+		_ALIAS_TRACKER.register(self, id(new_tuple))
+
+		
+		# Update fingerprint
+		self._fp_update_multi(fp_updates)
 
 
 	""" Comparison Operators - equality and hashing
@@ -714,10 +698,10 @@ class PyVector():
 		if self._typesafe:
 			raise TypeError(f'Cannot convert typesafe PyVector from {self._dtype.__name__} to {new_dtype.__name__}.')
 		if new_dtype == float and self._dtype == int:
-			self._underlying = [float(x) for x in self._underlying]
+			self._underlying = tuple(float(x) for x in self._underlying)
 			self._dtype = float
 		if new_dtype == complex and self._dtype in (int, float):
-			self._underlying = [complex(x) for x in self._underlying]
+			self._underlying = tuple(complex(x) for x in self._underlying)
 			self._dtype = complex
 		return
 
@@ -770,15 +754,6 @@ class PyVector():
 
 	def argsort(self):
 		return [i for i, _ in sorted(enumerate(self._underlying), key=lambda x: x[1])]
-
-
-	def __hash__(self):
-		return hash((
-			self._dtype,
-			self._typesafe,
-			self._default,
-			self._underlying,
-			self._name))
 
 
 	def _check_duplicate(self, other):
@@ -907,8 +882,9 @@ class PyTable(PyVector):
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		self._length = len(initial[0]) if initial else 0
 		
-		# Store original column references (not copies)
-		# This allows mutations to the original columns to be reflected in the table
+		# Deep copy columns to enforce value semantics
+		# Tables receive snapshots of vectors, preventing aliasing
+		initial = [vec.copy() for vec in initial] if initial else ()
 		
 		return super().__init__(
 			initial,
@@ -1102,7 +1078,7 @@ class PyTable(PyVector):
 		"""
 		if isinstance(other, PyTable):
 			return PyVector(self.cols() + other.cols())
-		return PyVector(self.cols() + [other])
+		return PyVector(self.cols() + (other,))
 
 class _PyFloat(PyVector):
 	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):

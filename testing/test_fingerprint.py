@@ -106,10 +106,10 @@ class TestNestedStructures:
         table = PyVector([col1, col2])
         fp1 = table.fingerprint()
         
-        # Mutate through column reference
+        # Mutate original column - value semantics means table is unaffected
         col1[0] = 999
         fp2 = table.fingerprint()
-        assert fp1 != fp2
+        assert fp1 == fp2  # Table has a copy, not affected by mutation
 
 
 class TestFingerprintStability:
