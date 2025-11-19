@@ -3,9 +3,11 @@ import warnings
 import re
 
 from _alias_tracker import _ALIAS_TRACKER, AliasError
+from _errors import PyVectorTypeError, PyVectorIndexError, PyVectorValueError, PyVectorKeyError
 from copy import deepcopy
 from datetime import date
 from datetime import datetime
+from _typeutils import slice_length
 
 
 def _sanitize_user_name(name: str) -> str:
@@ -74,22 +76,7 @@ def _uniquify(base: str, existing: set) -> str:
 		counter += 1
 
 
-def slice_length(s: slice, sequence_length: int) -> int:
-	"""
-	Calculates the length of a slice given the slice object and the sequence length.
 
-	Args:
-		s: The slice object.
-		sequence_length: The length of the sequence being sliced.
-
-	Returns:
-		The length of the slice.
-	"""
-	start, stop, step = s.indices(sequence_length)
-	return max(0, (stop - start + (step - (1 if step > 0 else -1))) // step)
-
-def _str_to_repr(head, tail, joiner):
-	pass
 
 
 def _format_col(col, num_rows=5):
@@ -317,7 +304,7 @@ class PyVector():
 		self._display_as_row = as_row
 
 		if self._typesafe and default_element is not None and not isinstance(default_element, dtype):
-			raise TypeError(f"Default element cannot be of type {type(default_element)} for typesafe PyVector(<{dtype}>)")
+			raise PyVectorTypeError(f"Default element cannot be of type {type(default_element)} for typesafe PyVector(<{dtype}>)")
 
 		promote = False
 		if initial: # Know it's a list with at least one item.
@@ -426,11 +413,6 @@ class PyVector():
 			fp = (fp + diff) % self._FP_P
 		self._fp = fp
 
-	def rename(self, new_name):
-		if new_name.startswith('_'):
-			raise NameError("Vector names cannot begin with '_'")
-		self._name = new_name
-
 	@classmethod
 	def new(cls, default_element, length, typesafe=False):
 		""" create a new, initialized vector of length * default_element"""
@@ -496,7 +478,7 @@ class PyVector():
 
 		if isinstance(key, tuple):
 			if len(key) != len(self.size()):
-				raise KeyError(f'Matrix indexing must provide an index in each dimension: {self.size()}')
+				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.size()}")
 			if len(key) == 1:
 				return self[key[0]]
 			return self._underlying[key[-1]][key[:-1]]
@@ -514,7 +496,7 @@ class PyVector():
 		# NOT RECOMMENDED
 		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
 			if len(self) > 1000:
-				warnings.warn('Subscript indexing is sub-optimal for large vectors')
+				warnings.warn('Subscript indexing is sub-optimal for large vectors; prefer slices or boolean masks')
 			return self.copy((self[x] for x in key), name=self._name)
 
 		# NOT RECOMMENDED
@@ -522,7 +504,7 @@ class PyVector():
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors')
 			return self.copy((self[x] for x in key), name=self._name)
-		raise TypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
+		raise PyVectorTypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
 
 
 	def __setitem__(self, key, value):
@@ -562,7 +544,7 @@ class PyVector():
 			slice_len = slice_length(key, len(self))
 			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
 				if slice_len != len(value):
-					raise ValueError("Slice length and value length must be the same.")
+					raise PyVectorValueError("Slice length and value length must be the same.")
 				values_to_assign = value
 			else:
 				values_to_assign = [value for _ in range(slice_len)]
@@ -576,14 +558,14 @@ class PyVector():
 		# Single integer index assignment
 		elif isinstance(key, int):
 			if not (-len(self) <= key < len(self)):
-				raise IndexError(f"Index {key} is out of bounds for vector of length {len(self)}")
+				raise PyVectorIndexError(f"Index {key} is out of range for PyVector of length {len(self)}")
 			updates.append((key, value))
 		
 		# Subscript indexing with PyVector of integers
 		elif isinstance(key, PyVector) and key._dtype == int and key._typesafe:
 			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
 				if len(key) != len(value):
-					raise ValueError("Number of indices must match the length of values.")
+					raise PyVectorValueError("Number of indices must match the length of values.")
 				for idx, val in zip(key, value):
 					updates.append((idx, val))
 			else:
@@ -594,14 +576,14 @@ class PyVector():
 		elif isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
 			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
 				if len(key) != len(value):
-					raise ValueError("Number of indices must match the length of values.")
+					raise PyVectorValueError("Number of indices must match the length of values.")
 				for idx, val in zip(key, value):
 					updates.append((idx, val))
 			else:
 				for idx in key:
 					updates.append((idx, value))
 		else:
-			raise TypeError(f"Invalid key type: {type(key)}. Must be boolean vector, integer vector, slice, or single index.")
+			raise PyVectorTypeError(f"Invalid key type: {type(key)}. Must be boolean vector, integer vector, slice, or single index.")
 		
 		# Copy-on-write: convert to list, apply mutations, convert back to tuple
 		data = list(self._underlying)
@@ -722,7 +704,7 @@ class PyVector():
 				self._display_as_row
 				)
 
-		raise TypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		raise PyVectorTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
 	def _unary_operation(self, op_func, op_name: str):
 		"""Helper function to handle unary operations on each element."""
@@ -826,7 +808,7 @@ class PyVector():
 		if self._dtype == new_dtype:
 			return
 		if self._typesafe:
-			raise TypeError(f'Cannot convert typesafe PyVector from {self._dtype.__name__} to {new_dtype.__name__}.')
+			raise PyVectorTypeError(f'Cannot convert typesafe PyVector from {self._dtype.__name__} to {new_dtype.__name__}.')
 		if new_dtype == float and self._dtype == int:
 			self._underlying = tuple(float(x) for x in self._underlying)
 			self._dtype = float
@@ -842,7 +824,7 @@ class PyVector():
 		if isinstance(key, int):
 			return self._underlying[key]
 		if isinstance(key, slice):
-			print(key)
+			return self._underlying[key]
 		return self._underlying
 
 	"""
@@ -917,7 +899,7 @@ class PyVector():
 		if isinstance(other, PyTable):
 			return PyVector(tuple(self @ z for z in other.cols()))
 		return sum(x*y for x, y in zip(self._underlying, other._underlying, strict=True))
-		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 		# PyVector(tuple(PyVector(tuple(sum((u*v for u, v in zip(x._underlying, y._underlying))) for y in q.cols())) for x in p))
 
 
@@ -926,7 +908,7 @@ class PyVector():
 		if len(self.size()) > 1:
 			return PyVector(tuple(x @ other for x in self.cols()))
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
-		raise TypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
 
 	def __bool__(self):
@@ -937,7 +919,7 @@ class PyVector():
 		a default value is empty.
 		"""
 		if self._dtype == bool and self._typesafe:
-			warnings.warn(f"For element-by-element operations use (&, |, ~) instead of 'and', 'or', 'not' keywords.")
+			warnings.warn(f"For element-by-element logical operations use (&, |, ~) instead of the 'and', 'or', 'not' keywords.")
 		if self._underlying:
 			return True
 		return False
@@ -947,11 +929,11 @@ class PyVector():
 		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
 		"""
 		if self._dtype in (bool, int) and isinstance(other, int):
-			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
+			warnings.warn(f"The behavior of >> and << have been overridden for concatenation. Use .bitshift() to shift bits.")
 
 		if isinstance(other, PyVector):
 			if self._typesafe and other._typesafe and self._dtype != other._dtype:
-				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector(self._underlying + other._underlying,
 				self._default, # self does not inherit other's default element
@@ -972,11 +954,11 @@ class PyVector():
 		""" The >> operator behavior has been overridden to add the column(s) of other to self
 		"""
 		if self._dtype in (bool, int) and isinstance(other, int):
-			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
+			warnings.warn(f"The behavior of >> and << have been overridden for concatenation. Use .bitshift() to shift bits.")
 
 		if isinstance(other, PyTable):
 			if self._typesafe and other._typesafe and self._dtype != other._dtype:
-				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector((self,) + other.cols(),
 				self._default, # self does not inherit other's default element
@@ -984,7 +966,7 @@ class PyVector():
 				self._typesafe or other._typesafe)
 		if isinstance(other, PyVector):
 			if self._typesafe and other._typesafe and self._dtype != other._dtype:
-				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector((self,) + (other,),
 				self._default, # self does not inherit other's default element
@@ -1000,7 +982,7 @@ class PyVector():
 				self._default, # self does not inherit other's default element
 				self._dtype,
 				self._typesafe)
-		raise TypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
+		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
 
 	def __rlshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append)

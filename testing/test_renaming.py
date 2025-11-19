@@ -219,8 +219,9 @@ def test_pytable_getattr_after_rename():
 	
 	t.rename_column('a', 'alpha')
 	
-	# Old attribute should return None (column name doesn't match anymore)
-	assert t.a is None
+	# Old attribute should raise AttributeError (column was renamed away)
+	with pytest.raises(AttributeError):
+		_ = t.a
 	
 	# New attribute should work
 	assert list(t.alpha) == [1, 2, 3]

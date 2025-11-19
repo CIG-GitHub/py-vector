@@ -1,5 +1,10 @@
 import warnings
 from py_vector import PyVector, _sanitize_user_name, _uniquify
+from _errors import PyVectorKeyError, PyVectorValueError
+
+
+def _missing_col_error(name, context="PyTable"):
+	return PyVectorKeyError(f"Column '{name}' not found in {context}")
 
 
 class PyTable(PyVector):
@@ -92,7 +97,10 @@ class PyTable(PyVector):
 				if f'col{idx}_' == attr_lower:
 					return col
 		
-		return None
+		# Historically this method returned None when an attribute did not match
+		# any column name. Move to Pythonic behavior: raise AttributeError
+		# so attribute access failures behave like normal Python objects.
+		raise AttributeError(f"{self.__class__.__name__!s} object has no attribute '{attr}'")
 
 	def rename_column(self, old_name, new_name):
 		"""Rename a column (modifies in place, returns self for chaining)"""
@@ -100,7 +108,7 @@ class PyTable(PyVector):
 			if col._name == old_name:
 				col._name = new_name
 				return self
-		raise KeyError(f"Column '{old_name}' not found")
+		raise _missing_col_error(old_name)
 	
 	def rename_columns(self, old_names, new_names):
 		"""
@@ -114,7 +122,7 @@ class PyTable(PyVector):
 		"""
 
 		if len(old_names) != len(new_names):
-			raise ValueError("old_names and new_names must have the same length")
+			raise PyVectorValueError("old_names and new_names must have the same length")
 
 		# Simulate renames using a temporary list (avoid mid-state partial renames)
 		simulated = [col._name for col in self._underlying]
@@ -123,7 +131,7 @@ class PyTable(PyVector):
 			try:
 				idx = simulated.index(old)
 			except ValueError:
-				raise KeyError(f"Column '{old}' not found")
+				raise _missing_col_error(old)
 			simulated[idx] = new  # simulate rename
 
 		# Apply renames for real
@@ -179,7 +187,7 @@ class PyTable(PyVector):
 					if f'col{idx}_' == key_lower:
 						return col
 			
-			raise KeyError(f"Column '{key}' not found")
+			raise _missing_col_error(key)
 		
 		# Handle tuple of strings for multi-column selection
 		if isinstance(key, tuple) and all(isinstance(k, str) for k in key):
@@ -218,14 +226,14 @@ class PyTable(PyVector):
 								selected_cols.append(col.copy())
 								found = True
 								break
-				
-				if not found:
-					raise KeyError(f"Column '{col_name}' not found")
+
+								if not found:
+									raise _missing_col_error(col_name)
 			return PyTable(selected_cols)
 		
 		if isinstance(key, tuple):
 			if len(key) != len(self.size()):
-				raise KeyError(f'Matrix indexing must provide an index in each dimension: {self.size()}')
+				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.size()}")
 			# for now.
 			if len(key) > 2:
 				return self[key[0]][key[1:]]
@@ -271,7 +279,7 @@ class PyTable(PyVector):
 		# NOT RECOMMENDED
 		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
 			if len(self) > 1000:
-				warnings.warn('Subscript indexing is sub-optimal for large vectors')
+				warnings.warn('Subscript indexing is sub-optimal for large vectors; prefer slices or boolean masks')
 			return PyVector(tuple(x[key] for x in self._underlying),
 				default_element = self._default,
 				dtype = self._dtype,
@@ -316,7 +324,7 @@ class PyTable(PyVector):
 
 		if isinstance(other, PyTable):
 			if self._typesafe and other._typesafe and self._dtype != other._dtype:
-				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector(self.cols() + other.cols(),
 				self._default, # self does not inherit other's default element
@@ -324,7 +332,7 @@ class PyTable(PyVector):
 				self._typesafe or other._typesafe)
 		if isinstance(other, PyVector):
 			if self._typesafe and other._typesafe and self._dtype != other._dtype:
-				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector(self.cols() + (other,),
 				self._default, # self does not inherit other's default element
@@ -335,7 +343,7 @@ class PyTable(PyVector):
 				self._default, # self does not inherit other's default element
 				self._dtype,
 				self._typesafe)
-		raise TypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
+		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
 
 	def __lshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
@@ -370,11 +378,11 @@ class PyTable(PyVector):
 				try:
 					return table[col_spec]
 				except (KeyError, ValueError):
-					raise ValueError(f"{side_name} table has no column '{col_spec}'")
+					raise _missing_col_error(col_spec, context=f"{side_name} table")
 			elif isinstance(col_spec, PyVector):
 				return col_spec
 			else:
-				raise ValueError(
+				raise PyVectorValueError(
 					f"Column specification must be string or PyVector, got {type(col_spec).__name__}"
 				)
 		
@@ -385,10 +393,10 @@ class PyTable(PyVector):
 			right_on = [right_on]
 		
 		if not isinstance(left_on, list) or not isinstance(right_on, list):
-			raise ValueError("left_on and right_on must be strings, PyVectors, or lists")
+			raise PyVectorValueError("left_on and right_on must be strings, PyVectors, or lists")
 		
 		if len(left_on) == 0 or len(right_on) == 0:
-			raise ValueError("Must specify at least 1 join key")
+			raise PyVectorValueError("Must specify at least 1 join key")
 		
 		if len(left_on) != len(right_on):
 			raise ValueError(
@@ -450,7 +458,7 @@ class PyTable(PyVector):
 			# Right side must have unique keys
 			duplicates = {k: indices for k, indices in right_index.items() if len(indices) > 1}
 			if duplicates:
-				raise ValueError(
+				raise PyVectorValueError(
 					f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 					f"Found {len(duplicates)} duplicate key(s), e.g., {list(duplicates.keys())[0]} "
 					f"appears {len(list(duplicates.values())[0])} times."
@@ -468,7 +476,7 @@ class PyTable(PyVector):
 			# Check one_to_many / one_to_one constraint
 			if expect in ('one_to_one', 'one_to_many'):
 				if key in left_keys_seen:
-					raise ValueError(
+					raise PyVectorValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -537,7 +545,7 @@ class PyTable(PyVector):
 			# Right side must have unique keys
 			duplicates = {k: indices for k, indices in right_index.items() if len(indices) > 1}
 			if duplicates:
-				raise ValueError(
+				raise PyVectorValueError(
 					f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 					f"Found {len(duplicates)} duplicate key(s), e.g., {list(duplicates.keys())[0]} "
 					f"appears {len(list(duplicates.values())[0])} times."
@@ -555,7 +563,7 @@ class PyTable(PyVector):
 			# Check one_to_many / one_to_one constraint
 			if expect in ('one_to_one', 'one_to_many'):
 				if key in left_keys_seen:
-					raise ValueError(
+					raise PyVectorValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -628,7 +636,7 @@ class PyTable(PyVector):
 		if expect in ('one_to_one', 'many_to_one'):
 			duplicates = {k: indices for k, indices in right_index.items() if len(indices) > 1}
 			if duplicates:
-				raise ValueError(
+				raise PyVectorValueError(
 					f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 					f"Found {len(duplicates)} duplicate key(s), e.g., {list(duplicates.keys())[0]} "
 					f"appears {len(list(duplicates.values())[0])} times."
@@ -649,7 +657,7 @@ class PyTable(PyVector):
 			# Check one_to_many / one_to_one constraint
 			if expect in ('one_to_one', 'one_to_many'):
 				if key in left_keys_seen:
-					raise ValueError(
+					raise PyVectorValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -760,7 +768,7 @@ class PyTable(PyVector):
 		# Validate all columns have correct length
 		for i, partition_col in enumerate(over):
 			if len(partition_col) != len(self):
-				raise ValueError(
+				raise PyVectorValueError(
 					f"Partition key at index {i} has length {len(partition_col)}, "
 					f"but table has {len(self)} rows"
 				)
@@ -798,8 +806,9 @@ class PyTable(PyVector):
 			return unique_name
 		
 		# Add partition key columns (unique values)
-		for partition_col in over:
-			unique_values = [key[i] for key in partition_index.keys() for i in [over.index(partition_col)]]
+		# Use index-based enumeration to avoid any equality/operator overloads on PyVector
+		for idx, partition_col in enumerate(over):
+			unique_values = [key[idx] for key in partition_index.keys()]
 			col_name = partition_col._name if partition_col._name else "key"
 			result_cols.append(PyVector(unique_values, name=uniquify_name(col_name)))
 		
@@ -809,7 +818,7 @@ class PyTable(PyVector):
 				return
 			for col in agg_cols:
 				if len(col) != len(self):
-					raise ValueError(f"Aggregation column has wrong length")
+					raise PyVectorValueError(f"Aggregation column has wrong length")
 				
 				agg_values = []
 				for key in partition_index.keys():
@@ -831,7 +840,7 @@ class PyTable(PyVector):
 		if stdev_over is not None:
 			for col in stdev_over:
 				if len(col) != len(self):
-					raise ValueError(f"Aggregation column has wrong length")
+					raise PyVectorValueError(f"Aggregation column has wrong length")
 				
 				agg_values = []
 				for key in partition_index.keys():
@@ -851,7 +860,7 @@ class PyTable(PyVector):
 		if apply is not None:
 			for agg_name, (col, func) in apply.items():
 				if len(col) != len(self):
-					raise ValueError(f"Custom aggregation column '{agg_name}' has wrong length")
+					raise PyVectorValueError(f"Custom aggregation column '{agg_name}' has wrong length")
 				
 				agg_values = []
 				for key in partition_index.keys():

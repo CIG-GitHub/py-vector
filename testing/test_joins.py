@@ -284,8 +284,9 @@ def test_join_key_validation_missing_column():
 	"""Test that non-existent column names raise error"""
 	left = PyTable({'id': [1, 2]})
 	right = PyTable({'id': [2, 3]})
-	
-	with pytest.raises(ValueError, match="no column"):
+    
+	from _errors import PyVectorKeyError
+	with pytest.raises(PyVectorKeyError):
 		left.inner_join(right, left_on='missing_col', right_on='id')
 
 
