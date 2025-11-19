@@ -694,3 +694,358 @@ class PyTable(PyVector):
 				result_cols.append(PyVector(col_data, name=orig_col._name))
 		
 		return PyTable(result_cols)
+	
+	def aggregate(
+		self,
+		# --- Partition keys ---
+		over,
+		
+		# --- Built-in aggregations ---
+		sum_over=None,
+		mean_over=None,
+		min_over=None,
+		max_over=None,
+		stdev_over=None,
+		count_over=None,
+		
+		# --- Escape hatch ---
+		apply=None,
+	):
+		"""
+		Group rows by partition keys and compute aggregations.
+		
+		Args:
+			over: PyVector(s) to partition/group by
+			sum_over: PyVector(s) to sum within each group
+			mean_over: PyVector(s) to average within each group
+			min_over: PyVector(s) to find minimum within each group
+			max_over: PyVector(s) to find maximum within each group
+			stdev_over: PyVector(s) to compute standard deviation within each group
+			count_over: PyVector(s) to count non-None values within each group
+			apply: Dict of {name: (column, function)} for custom aggregations
+		
+		Returns:
+			PyTable with one row per unique partition key combination
+		
+		Examples:
+			# Group by customer_id, sum orders
+			table.aggregate(over=table.customer_id, sum_over=table.order_total)
+			
+			# Multiple partition keys and aggregations
+			table.aggregate(
+				over=[table.year, table.month],
+				sum_over=table.revenue,
+				mean_over=table.score,
+				count_over=table.transaction_id
+			)
+		"""
+		# Normalize partition keys to list
+		if isinstance(over, PyVector):
+			over = [over]
+		
+		# Normalize aggregation columns to lists
+		if sum_over is not None and isinstance(sum_over, PyVector):
+			sum_over = [sum_over]
+		if mean_over is not None and isinstance(mean_over, PyVector):
+			mean_over = [mean_over]
+		if min_over is not None and isinstance(min_over, PyVector):
+			min_over = [min_over]
+		if max_over is not None and isinstance(max_over, PyVector):
+			max_over = [max_over]
+		if stdev_over is not None and isinstance(stdev_over, PyVector):
+			stdev_over = [stdev_over]
+		if count_over is not None and isinstance(count_over, PyVector):
+			count_over = [count_over]
+		
+		# Validate all columns have correct length
+		for i, partition_col in enumerate(over):
+			if len(partition_col) != len(self):
+				raise ValueError(
+					f"Partition key at index {i} has length {len(partition_col)}, "
+					f"but table has {len(self)} rows"
+				)
+		
+		# Build partition index: key_tuple -> list of row indices
+		partition_index = {}
+		for row_idx in range(len(self)):
+			key = tuple(over[i][row_idx] for i in range(len(over)))
+			if key not in partition_index:
+				partition_index[key] = []
+			partition_index[key].append(row_idx)
+		
+		# Helper to generate unique column name with suffix
+		def make_agg_name(col, suffix):
+			base_name = col._name if col._name else "col"
+			base_sanitized = _sanitize_user_name(base_name)
+			if base_sanitized is None:
+				base_sanitized = "col"
+			return f"{base_sanitized}_{suffix}"
+		
+		# Collect all result columns
+		result_cols = []
+		used_names = set()
+		
+		# Helper to ensure unique names
+		def uniquify_name(name):
+			if name not in used_names:
+				used_names.add(name)
+				return name
+			counter = 2
+			while f"{name}{counter}" in used_names:
+				counter += 1
+			unique_name = f"{name}{counter}"
+			used_names.add(unique_name)
+			return unique_name
+		
+		# Add partition key columns (unique values)
+		for partition_col in over:
+			unique_values = [key[i] for key in partition_index.keys() for i in [over.index(partition_col)]]
+			col_name = partition_col._name if partition_col._name else "key"
+			result_cols.append(PyVector(unique_values, name=uniquify_name(col_name)))
+		
+		# Process aggregations
+		def compute_aggregation(agg_cols, agg_func, suffix):
+			if agg_cols is None:
+				return
+			for col in agg_cols:
+				if len(col) != len(self):
+					raise ValueError(f"Aggregation column has wrong length")
+				
+				agg_values = []
+				for key in partition_index.keys():
+					row_indices = partition_index[key]
+					group_values = [col[idx] for idx in row_indices]
+					agg_values.append(agg_func(group_values))
+				
+				col_name = make_agg_name(col, suffix)
+				result_cols.append(PyVector(agg_values, name=uniquify_name(col_name)))
+		
+		# Apply built-in aggregations
+		compute_aggregation(sum_over, lambda vals: sum(v for v in vals if v is not None), "sum")
+		compute_aggregation(mean_over, lambda vals: sum(v for v in vals if v is not None) / len([v for v in vals if v is not None]) if any(v is not None for v in vals) else None, "mean")
+		compute_aggregation(min_over, lambda vals: min(v for v in vals if v is not None) if any(v is not None for v in vals) else None, "min")
+		compute_aggregation(max_over, lambda vals: max(v for v in vals if v is not None) if any(v is not None for v in vals) else None, "max")
+		compute_aggregation(count_over, lambda vals: len([v for v in vals if v is not None]), "count")
+		
+		# Standard deviation
+		if stdev_over is not None:
+			for col in stdev_over:
+				if len(col) != len(self):
+					raise ValueError(f"Aggregation column has wrong length")
+				
+				agg_values = []
+				for key in partition_index.keys():
+					row_indices = partition_index[key]
+					group_values = [col[idx] for idx in row_indices if col[idx] is not None]
+					if len(group_values) > 1:
+						mean_val = sum(group_values) / len(group_values)
+						variance = sum((v - mean_val) ** 2 for v in group_values) / (len(group_values) - 1)
+						agg_values.append(variance ** 0.5)
+					else:
+						agg_values.append(None)
+				
+				col_name = make_agg_name(col, "stdev")
+				result_cols.append(PyVector(agg_values, name=uniquify_name(col_name)))
+		
+		# Custom aggregations via apply
+		if apply is not None:
+			for agg_name, (col, func) in apply.items():
+				if len(col) != len(self):
+					raise ValueError(f"Custom aggregation column '{agg_name}' has wrong length")
+				
+				agg_values = []
+				for key in partition_index.keys():
+					row_indices = partition_index[key]
+					group_values = [col[idx] for idx in row_indices]
+					agg_values.append(func(group_values))
+				
+				result_cols.append(PyVector(agg_values, name=uniquify_name(agg_name)))
+	
+		return PyTable(result_cols)
+
+	def window(
+		self,
+		# --- Partition keys ---
+		over,
+		
+		# --- Built-in aggregations ---
+		sum_over=None,
+		mean_over=None,
+		min_over=None,
+		max_over=None,
+		stdev_over=None,
+		count_over=None,
+		
+		# --- Escape hatch ---
+		apply=None,
+	):
+		"""
+		Compute window functions over partitions, returning the same number of rows.
+		
+		Similar to aggregate(), but repeats the aggregated value for each row in the group.
+		
+		Args:
+			over: PyVector(s) to partition/group by
+			sum_over: PyVector(s) to sum within each group
+			mean_over: PyVector(s) to average within each group
+			min_over: PyVector(s) to find minimum within each group
+			max_over: PyVector(s) to find maximum within each group
+			stdev_over: PyVector(s) to compute standard deviation within each group
+			count_over: PyVector(s) to count non-None values within each group
+			apply: Dict of {name: (column, function)} for custom aggregations
+		
+		Returns:
+			PyTable with same number of rows as input, with aggregated values repeated
+		
+		Examples:
+			# Add running total per customer
+			table.window(over=table.customer_id, sum_over=table.order_total)
+			
+			# Multiple window functions
+			table.window(
+				over=[table.year, table.month],
+				sum_over=table.revenue,
+				count_over=table.transaction_id
+			)
+		"""
+		# Normalize partition keys to list
+		if isinstance(over, PyVector):
+			over = [over]
+		
+		# Normalize aggregation columns to lists
+		if sum_over is not None and isinstance(sum_over, PyVector):
+			sum_over = [sum_over]
+		if mean_over is not None and isinstance(mean_over, PyVector):
+			mean_over = [mean_over]
+		if min_over is not None and isinstance(min_over, PyVector):
+			min_over = [min_over]
+		if max_over is not None and isinstance(max_over, PyVector):
+			max_over = [max_over]
+		if stdev_over is not None and isinstance(stdev_over, PyVector):
+			stdev_over = [stdev_over]
+		if count_over is not None and isinstance(count_over, PyVector):
+			count_over = [count_over]
+		
+		# Validate all columns have correct length
+		for i, partition_col in enumerate(over):
+			if len(partition_col) != len(self):
+				raise ValueError(
+					f"Partition key at index {i} has length {len(partition_col)}, "
+					f"but table has {len(self)} rows"
+				)
+		
+		# Build partition index: key_tuple -> list of row indices
+		partition_index = {}
+		for row_idx in range(len(self)):
+			key = tuple(over[i][row_idx] for i in range(len(over)))
+			if key not in partition_index:
+				partition_index[key] = []
+			partition_index[key].append(row_idx)
+		
+		# Helper to generate unique column name with suffix
+		def make_agg_name(col, suffix):
+			base_name = col._name if col._name else "col"
+			base_sanitized = _sanitize_user_name(base_name)
+			if base_sanitized is None:
+				base_sanitized = "col"
+			return f"{base_sanitized}_{suffix}"
+		
+		# Collect all result columns
+		result_cols = []
+		used_names = set()
+		
+		# Helper to ensure unique names
+		def uniquify_name(name):
+			if name not in used_names:
+				used_names.add(name)
+				return name
+			counter = 2
+			while f"{name}{counter}" in used_names:
+				counter += 1
+			unique_name = f"{name}{counter}"
+			used_names.add(unique_name)
+			return unique_name
+		
+		# Add partition key columns (preserve original row order)
+		for partition_col in over:
+			# Just use the original column since we're keeping all rows
+			col_name = partition_col._name if partition_col._name else "key"
+			result_cols.append(PyVector(list(partition_col), name=uniquify_name(col_name)))
+		
+		# Process window aggregations - compute once per group, then expand
+		def compute_window_aggregation(agg_cols, agg_func, suffix):
+			if agg_cols is None:
+				return
+			for col in agg_cols:
+				if len(col) != len(self):
+					raise ValueError(f"Aggregation column has wrong length")
+				
+				# Compute aggregation for each group
+				group_agg_values = {}
+				for key, row_indices in partition_index.items():
+					group_values = [col[idx] for idx in row_indices]
+					group_agg_values[key] = agg_func(group_values)
+				
+				# Expand: assign aggregated value to each row in original order
+				window_values = []
+				for row_idx in range(len(self)):
+					key = tuple(over[i][row_idx] for i in range(len(over)))
+					window_values.append(group_agg_values[key])
+				
+				col_name = make_agg_name(col, suffix)
+				result_cols.append(PyVector(window_values, name=uniquify_name(col_name)))
+		
+		# Apply built-in aggregations
+		compute_window_aggregation(sum_over, lambda vals: sum(v for v in vals if v is not None), "sum")
+		compute_window_aggregation(mean_over, lambda vals: sum(v for v in vals if v is not None) / len([v for v in vals if v is not None]) if any(v is not None for v in vals) else None, "mean")
+		compute_window_aggregation(min_over, lambda vals: min(v for v in vals if v is not None) if any(v is not None for v in vals) else None, "min")
+		compute_window_aggregation(max_over, lambda vals: max(v for v in vals if v is not None) if any(v is not None for v in vals) else None, "max")
+		compute_window_aggregation(count_over, lambda vals: len([v for v in vals if v is not None]), "count")
+		
+		# Standard deviation
+		if stdev_over is not None:
+			for col in stdev_over:
+				if len(col) != len(self):
+					raise ValueError(f"Aggregation column has wrong length")
+				
+				# Compute aggregation for each group
+				group_agg_values = {}
+				for key, row_indices in partition_index.items():
+					group_values = [col[idx] for idx in row_indices if col[idx] is not None]
+					if len(group_values) > 1:
+						mean_val = sum(group_values) / len(group_values)
+						variance = sum((v - mean_val) ** 2 for v in group_values) / (len(group_values) - 1)
+						group_agg_values[key] = variance ** 0.5
+					else:
+						group_agg_values[key] = None
+				
+				# Expand to all rows
+				window_values = []
+				for row_idx in range(len(self)):
+					key = tuple(over[i][row_idx] for i in range(len(over)))
+					window_values.append(group_agg_values[key])
+				
+				col_name = make_agg_name(col, "stdev")
+				result_cols.append(PyVector(window_values, name=uniquify_name(col_name)))
+		
+		# Custom aggregations via apply
+		if apply is not None:
+			for agg_name, (col, func) in apply.items():
+				if len(col) != len(self):
+					raise ValueError(f"Custom aggregation column '{agg_name}' has wrong length")
+				
+				# Compute aggregation for each group
+				group_agg_values = {}
+				for key, row_indices in partition_index.items():
+					group_values = [col[idx] for idx in row_indices]
+					group_agg_values[key] = func(group_values)
+				
+				# Expand to all rows
+				window_values = []
+				for row_idx in range(len(self)):
+					key = tuple(over[i][row_idx] for i in range(len(over)))
+					window_values.append(group_agg_values[key])
+				
+				result_cols.append(PyVector(window_values, name=uniquify_name(agg_name)))
+		
+		return PyTable(result_cols)
