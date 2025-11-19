@@ -722,6 +722,17 @@ class PyVector():
 
 		raise TypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
+	def _unary_operation(self, op_func, op_name: str):
+		"""Helper function to handle unary operations on each element."""
+		return PyVector(
+			tuple(op_func(x) for x in self),
+			default_element=(op_func(self._default) if self._default is not None else None),
+			dtype=self._dtype if self._typesafe else None,
+			name=self._name,
+			typesafe=self._typesafe,
+			as_row=self._display_as_row
+		)
+
 	def __add__(self, other):
 		return self._elementwise_operation(other, operator.add, '__add__', '+')
 
@@ -730,6 +741,18 @@ class PyVector():
 
 	def __sub__(self, other):
 		return self._elementwise_operation(other, operator.sub, '__sub__', '-')
+
+	def __neg__(self):
+		return self._unary_operation(operator.neg, '__neg__')
+
+	def __pos__(self):
+		return self._unary_operation(operator.pos, '__pos__')
+
+	def __abs__(self):
+		return self._unary_operation(operator.abs, '__abs__')
+
+	def __invert__(self):
+		return self._unary_operation(operator.invert, '__invert__')
 
 	def __truediv__(self, other):
 		return self._elementwise_operation(other, operator.truediv, '__truediv__', '/')
@@ -976,6 +999,39 @@ class PyVector():
 				self._dtype,
 				self._typesafe)
 		raise TypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
+
+	def __rlshift__(self, other):
+		""" The << operator behavior has been overridden to attempt to concatenate (append)
+		Handles: other << self (where other is not a PyVector)
+		"""
+		# Convert other to PyVector and concatenate with self
+		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+			return PyVector(tuple(other) + self._underlying,
+				None,  # other doesn't have a default element
+				None,
+				False)
+		# Scalar case: [other] + self
+		return PyVector((other,) + self._underlying,
+			None,
+			None,
+			False)
+
+	def __rrshift__(self, other):
+		""" The >> operator behavior has been overridden to add columns
+		Handles: other >> self (where other is not a PyVector)
+		Creates a table with other as first column(s) and self as additional column(s)
+		"""
+		# Convert other to PyVector and combine column-wise
+		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+			return PyVector((PyVector(tuple(other)), self),
+				None,
+				None,
+				False)
+		# Scalar case: create a single-element vector for other
+		return PyVector((PyVector((other,)), self),
+			None,
+			None,
+			False)
 
 class PyTable(PyVector):
 	""" Multiple columns of the same length """
