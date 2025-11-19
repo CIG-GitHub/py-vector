@@ -1,10 +1,77 @@
 import operator
 import warnings
+import re
 
 from _alias_tracker import _ALIAS_TRACKER, AliasError
 from copy import deepcopy
 from datetime import date
 from datetime import datetime
+
+
+def _sanitize_name(name: str) -> str:
+	"""
+	Convert a user-facing column name into a safe Python attribute name.
+
+	Rules:
+	- Keep [A-Za-z0-9_] as-is.
+	- Convert each contiguous run of other characters → single '_'.
+	- Lowercase the result.
+	- Strip leading/trailing underscores (these convey no semantic meaning).
+	- If empty after stripping → 'col'.
+	- If resulting name starts with a digit → prefix '_' (Python requirement).
+	"""
+
+	# Input normalization
+	if not isinstance(name, str):
+		name = str(name)
+
+	out = []
+	idx = 0
+	length = len(name)
+
+	while idx < length:
+		char = name[idx]
+
+		if char.isalnum() or char == "_":
+			out.append(char)
+			idx += 1
+		else:
+			# Non-allowed run → emit a single underscore
+			out.append("_")
+			while idx < length and not (name[idx].isalnum() or name[idx] == "_"):
+				idx += 1
+
+	sanitized = "".join(out).lower()
+
+	# Strip sanitation underscores on ends
+	sanitized = sanitized.strip("_")
+
+	# Empty fallback
+	if sanitized == "":
+		sanitized = "col"
+
+	# Must not start with a digit
+	if sanitized[0].isdigit():
+		sanitized = "_" + sanitized
+
+	return sanitized
+
+
+def _uniquify(base: str, existing: set) -> str:
+	"""
+	Ensure `base` is unique inside `existing`.
+	If not, append '__1', '__2', ... until it becomes unique.
+	"""
+
+	if base not in existing:
+		return base
+
+	counter = 1
+	while True:
+		candidate = f"{base}__{counter}"
+		if candidate not in existing:
+			return candidate
+		counter += 1
 
 
 def slice_length(s: slice, sequence_length: int) -> int:
@@ -31,7 +98,7 @@ def _format_col(col, num_rows=5):
 	if len(col) <= num_rows * 2:
 		und = col._underlying
 	else:
-		und = col._underlying[:num_rows] + ['...'] + col._underlying[-num_rows:]
+		und = col._underlying[:num_rows] + ('...',) + col._underlying[-num_rows:]
 	
 	# Format values based on dtype
 	if col._dtype == float:
@@ -64,7 +131,7 @@ def _recursive_colnames(pv):
 	return names
 
 
-def format_footer(pv, col_dtypes=None):
+def format_footer(pv, col_dtypes=None, truncated=False, num_shown=5):
 	"""Generate clean footer line."""
 	shape = '×'.join(str(s) for s in pv.size())
 	
@@ -75,7 +142,11 @@ def format_footer(pv, col_dtypes=None):
 	elif len(pv.size()) == 2:
 		# Table
 		if col_dtypes:
-			dtype_str = ', '.join(col_dtypes)
+			if truncated:
+				# Show first num_shown, ..., last num_shown dtypes
+				dtype_str = ', '.join(col_dtypes[:num_shown]) + ', ..., ' + ', '.join(col_dtypes[-num_shown:])
+			else:
+				dtype_str = ', '.join(col_dtypes)
 		else:
 			dtype_str = pv._dtype.__name__ if pv._dtype else 'object'
 		return f"# {shape} table <{dtype_str}>"
@@ -104,25 +175,41 @@ def _printr(pv):
 		if len(cols) == 0:
 			return '# 0×0 table'
 		
+		# Determine which columns to display (truncate if too many)
+		num_cols_to_show = 5  # Show first/last 5 columns
+		if len(cols) <= num_cols_to_show * 2:
+			cols_to_display = cols
+			col_indices = list(range(len(cols)))
+			truncated = False
+		else:
+			cols_to_display = list(cols[:num_cols_to_show]) + list(cols[-num_cols_to_show:])
+			col_indices = list(range(num_cols_to_show)) + list(range(len(cols) - num_cols_to_show, len(cols)))
+			truncated = True
+		
 		# Get column names and dtypes
 		col_names = []
 		col_dtypes = []
 		formatted_cols = []
 		
-		for idx, col in enumerate(cols, 1):
-			name = col._name or f'col_{idx}'
+		for idx, col in zip(col_indices, cols_to_display):
+			name = col._name or f'col_{idx+1}'
 			col_names.append(name)
 			dtype_name = col._dtype.__name__ if col._dtype else 'object'
 			col_dtypes.append(dtype_name)
 			formatted_cols.append(_format_col(col))
 		
+		# Insert '...' separator for truncated columns
+		if truncated:
+			col_names.insert(num_cols_to_show, '...')
+			formatted_cols.insert(num_cols_to_show, PyVector(['...' for _ in range(len(formatted_cols[0]))]))
+		
 		# Adjust column widths to fit headers
 		aligned_cols = []
 		aligned_names = []
-		for name, col, fmt_col in zip(col_names, cols, formatted_cols):
+		for name, col, fmt_col in zip(col_names, cols_to_display if not truncated else cols_to_display[:num_cols_to_show] + cols_to_display[num_cols_to_show:], formatted_cols):
 			width = max(len(name), max(len(cell) for cell in fmt_col._underlying))
 			# Re-align to new width
-			if col._dtype in (int, float):
+			if not truncated and col._dtype in (int, float):
 				aligned_cols.append(fmt_col.rjust(width))
 				aligned_names.append(name.rjust(width))
 			else:
@@ -139,7 +226,7 @@ def _printr(pv):
 			lines.append(row)
 		
 		lines.append('')
-		lines.append(format_footer(pv, col_dtypes))
+		lines.append(format_footer(pv, col_dtypes, truncated, num_cols_to_show))
 		return '\n'.join(lines)
 	
 	else:
@@ -210,7 +297,7 @@ class PyVector():
 		self._typesafe = typesafe
 		self._dtype = dtype
 		self._name = None
-		if name:
+		if name is not None:
 			self.rename(name)
 		self._default = default_element
 		self._display_as_row = as_row
@@ -894,7 +981,8 @@ class PyTable(PyVector):
 		
 		# Deep copy columns to enforce value semantics
 		# Tables receive snapshots of vectors, preventing aliasing
-		initial = [vec.copy() for vec in initial] if initial else ()
+		# Preserve names through the copy (name=... means preserve)
+		initial = [vec.copy(name=vec._name) for vec in initial] if initial else ()
 		
 		return super().__init__(
 			initial,
@@ -916,12 +1004,41 @@ class PyTable(PyVector):
 		return (len(self),) + self[0].size()
 
 	def __dir__(self):
-		return dir(PyVector) + [c._name for c in self._underlying]
+		sanitized_names = []
+		seen = set()
+		for i, col in enumerate(self._underlying):
+			if col._name is not None:
+				base = _sanitize_name(col._name)
+				unique_name = _uniquify(base, seen)
+				seen.add(unique_name)
+				sanitized_names.append(unique_name)
+			else:
+				# Unnamed columns get col_N
+				sanitized_names.append(f'col_{i+1}')
+		return dir(PyVector) + sanitized_names
 
 	def __getattr__(self, attr):
-		if attr in [c._name for c in self._underlying]:
-			idx = [c._name for c in self._underlying].index(attr)
-			return self._underlying[idx]
+		# Build sanitized name mapping with uniquification
+		attr_lower = attr.lower()
+		seen = set()
+		for col in self._underlying:
+			if col._name is not None:
+				base = _sanitize_name(col._name)
+				unique_name = _uniquify(base, seen)
+				seen.add(unique_name)
+				if unique_name == attr_lower:
+					return col
+			
+		# Try positional access for col_N pattern
+		if attr.startswith('col_'):
+			try:
+				idx = int(attr[4:]) - 1  # col_1 -> index 0
+				if 0 <= idx < len(self._underlying):
+					return self._underlying[idx]
+			except ValueError:
+				pass
+		
+		return None
 
 	def rename_column(self, old_name, new_name):
 		"""Rename a column (modifies in place, returns self for chaining)"""
@@ -985,10 +1102,27 @@ class PyTable(PyVector):
 		
 		# Handle string indexing for column names
 		if isinstance(key, str):
-			# Single column selection by name
+			# Try exact match first
 			for col in self._underlying:
 				if col._name == key:
 					return col
+			
+			# Try sanitized match (case-insensitive)
+			key_lower = key.lower()
+			for col in self._underlying:
+				if col._name is not None and _sanitize_name(col._name) == key_lower:
+					return col
+			
+			# Try uniquified sanitized names
+			seen = set()
+			for col in self._underlying:
+				if col._name is not None:
+					base = _sanitize_name(col._name)
+					unique_name = _uniquify(base, seen)
+					seen.add(unique_name)
+					if unique_name == key_lower:
+						return col
+			
 			raise KeyError(f"Column '{key}' not found")
 		
 		# Handle tuple of strings for multi-column selection
@@ -997,11 +1131,22 @@ class PyTable(PyVector):
 			selected_cols = []
 			for col_name in key:
 				found = False
+				# Try exact match first
 				for col in self._underlying:
 					if col._name == col_name:
 						selected_cols.append(col.copy())  # Copy to preserve original
 						found = True
 						break
+				
+				# Try sanitized match (case-insensitive)
+				if not found:
+					col_name_lower = col_name.lower()
+					for col in self._underlying:
+						if col._name is not None and _sanitize_name(col._name) == col_name_lower:
+							selected_cols.append(col.copy())
+							found = True
+							break
+				
 				if not found:
 					raise KeyError(f"Column '{col_name}' not found")
 			return PyTable(selected_cols)
