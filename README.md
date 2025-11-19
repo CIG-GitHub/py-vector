@@ -20,16 +20,14 @@ t = PyTable({
 t >>= (t.price * t.quantity).rename("total")
 t >>= (t.total * 0.1).rename("tax")
 
-print(t)
-# price  quantity  total  tax
-#    10         4     40  4.0
-#    20         5    100 10.0
-#    30         6    180 18.0
+t
+# price ($)  quantity  total  tax
+#        10         4     40  4.0
+#        20         5    100 10.0
+#        30         6    180 18.0
 #
 # 3×4 table <int, int, int, float>
 ```
-
----
 
 ## Installation
 
@@ -37,9 +35,12 @@ print(t)
 pip install py-vector
 ```
 
-**Zero external dependencies.** Pure Python stdlib only.
+Zero external dependencies. In a fresh environment:
 
----
+```bash
+pip freeze
+# py-vector==0.x.y
+```
 
 ## Why PyVector?
 
@@ -49,10 +50,6 @@ pip install py-vector
 - Safe defaults (copy-on-write, alias tracking, immutability)
 - Immediate visual feedback via `__repr__`
 - Zero hidden magic
-
-**Sweet spot:** 10K–1M rows (modeling-scale data)
-
----
 
 ## Quickstart
 
@@ -96,10 +93,10 @@ filtered = t[t.price > 15]
 ### Joins
 
 ```python
-left = PyTable({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
-right = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
+customers = PyTable({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
+scores = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
 
-result = left.inner_join(right, left_on='id', right_on='id')
+result = customers.inner_join(scores, left_on='id', right_on='id')
 ```
 
 ### Aggregations
@@ -117,15 +114,13 @@ result = t.aggregate(
 
 **See [docs/joins-aggregations.md](docs/joins-aggregations.md) for detailed examples.**
 
----
-
 ## Key Features
 
 ### Automatic `__repr__`: Instant Visual Feedback
 
 ```python
 t = PyTable({'id': range(100), 'value': [x**2 for x in range(100)]})
-print(t)
+t
 # id  value
 #  0      0
 #  1      1
@@ -169,8 +164,6 @@ dates + 5          # Add 5 days
 
 Works for `int`, `float`, `str`, `date` types.
 
----
-
 ## Common Gotchas
 
 ### Don't use subscript lists—use boolean masks
@@ -208,8 +201,6 @@ sum(v)    # 30 (None excluded)
 len(v)    # 3 (None counted)
 ```
 
----
-
 ## Design Philosophy
 
 PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
@@ -230,8 +221,6 @@ PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw 
 - 10M+ rows → NumPy/Polars
 - Deep learning → PyTorch/JAX
 
----
-
 ## Further Documentation
 
 - **[Performance & Complexity](docs/performance.md)** — O(n) analysis for joins, aggregations, indexing
@@ -240,16 +229,12 @@ PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw 
 - **[Joins & Aggregations](docs/joins-aggregations.md)** — Detailed examples and patterns
 - **[Development Guide](docs/development.md)** — Running tests, project structure
 
----
-
 ## Philosophy
 
 - Clarity beats cleverness
 - Explicit beats implicit
 - Modeling should feel intuitive
 - You should always know what your code is doing
-
----
 
 ## License
 MIT

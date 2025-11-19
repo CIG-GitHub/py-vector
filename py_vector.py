@@ -89,7 +89,8 @@ def _format_col(col, num_rows=5):
 	
 	# Format values based on dtype
 	if col._dtype == float:
-		str_vec = PyVector([f"{val:g}" if val != '...' else val for val in und])
+		# Use .1f minimum to show at least one decimal place
+		str_vec = PyVector([f"{val:.1f}" if val != '...' and val == int(val) else f"{val:g}" if val != '...' else val for val in und])
 	elif col._dtype == int:
 		str_vec = PyVector([str(val) if val != '...' else val for val in und])
 	elif col._dtype == date:
