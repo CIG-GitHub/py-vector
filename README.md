@@ -1,5 +1,5 @@
-# PyVector  
-A clean, typed, composable data layer for Python.  
+# PyVector
+A clean, typed, composable data layer for Python.
 Built for readable data modeling and analysis workflows.
 
 ---
@@ -8,7 +8,7 @@ Built for readable data modeling and analysis workflows.
 
     pip install py-vector
 
-PyVector has **no external dependencies**.  
+PyVector has no external dependencies.
 In a fresh environment:
 
     pip freeze
@@ -22,10 +22,10 @@ This keeps environments clean, predictable, and easy to embed into modeling syst
 
 PyVector is built for situations where you want:
 
-- explicit, predictable vector semantics  
-- tables that compose cleanly from vectors  
-- readable "spreadsheet-like" modeling workflows  
-- safe defaults (alias tracking, immutable tuples, deterministic operations)  
+- explicit, predictable vector semantics
+- tables that compose cleanly from vectors
+- readable "spreadsheet-like" modeling workflows
+- safe defaults (alias tracking, immutable tuples, deterministic operations)
 - zero hidden magic
 
 It is intentionally small and easy to reason about.
@@ -86,24 +86,16 @@ filtered = t[mask]
 ### Matrix multiplication
 
 ```python
-a = PyVector(range(5))
-t = a >> a >> a
-
-t @ t.T      # 5×5 matrix
-t.T @ t      # 3×3 matrix
-```
-
-```python
 a = PyVector(range(3))
 
-# Create a table from raw vectors
-t = a >> a**2
+# Create a table by piping vectors
+t = a >> a >> a**2
 
 print(t)
 # 0  0  0
 # 1  1  1
 # 2  2  4
-# 
+#
 # 3×3 table <int, int, int>
 
 t.col1_      # Access unnamed column at index 1
@@ -117,20 +109,20 @@ t @ t.T      # 3x3 matrix multiplication
 ### PyVector
 A typed iterable with value semantics:
 
-- elementwise math and comparison  
-- optional type safety  
-- alias tracking prevents accidental mutation of shared data  
-- fingerprinting for O(1) change detection  
-- predictable behavior across numeric, string, and date types  
+- elementwise math and comparison
+- optional type safety
+- alias tracking prevents accidental mutation of shared data
+- fingerprinting for O(1) change detection
+- predictable behavior across numeric, string, and date types
 
 ### PyTable
 A table is a vector of equal-length vectors:
 
-- column-oriented storage  
-- stable semantics  
-- deep copy on construction (no aliasing)  
-- attribute access for valid column names  
-- fully composable  
+- column-oriented storage
+- stable semantics
+- deep copy on construction (no aliasing)
+- attribute access for valid column names
+- fully composable
 
 ### Transpose
 ```python
@@ -138,7 +130,7 @@ t.T      # swap rows/columns
 ```
 
 ### Math
-Elementwise by default.  
+Elementwise by default.
 Matrix multiplication uses the `@` operator.
 
 ---
@@ -248,11 +240,11 @@ PyVector performs well for modeling-scale data (thousands to low millions of row
 
 ## Philosophy
 
-- Clarity beats cleverness  
-- Explicit beats implicit  
-- Modeling should feel intuitive  
-- Tables are just vectors composed cleanly  
-- You should always know what your code is doing  
+- Clarity beats cleverness
+- Explicit beats implicit
+- Modeling should feel intuitive
+- Tables are just vectors composed cleanly
+- You should always know what your code is doing
 
 ---
 

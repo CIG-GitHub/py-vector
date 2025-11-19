@@ -399,7 +399,7 @@ class PyTable(PyVector):
 			raise PyVectorValueError("Must specify at least 1 join key")
 		
 		if len(left_on) != len(right_on):
-			raise ValueError(
+			raise PyVectorValueError(
 				f"left_on and right_on must have same length: "
 				f"got {len(left_on)} and {len(right_on)}"
 			)
