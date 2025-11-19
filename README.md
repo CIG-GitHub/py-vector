@@ -63,6 +63,18 @@ t.price         # PyVector([10, 20, 30])
 t.count_time    # PyVector([4, 5, 6])
 ```
 
+### add a new column
+Use the `>>` operator to stream new columns into the table. New columns should be named explicitly using .rename().
+
+```python
+# Calculate, rename, and append in one step
+t = t >> (t.count_time * t.price).rename("total_cost")
+
+# Chain operations cleanly
+t = t >> (t.revenue - t.cost).rename("profit") \
+      >> (t.profit / t.revenue).rename("margin")
+```
+
 ### Boolean masking
 
 ```python
@@ -84,6 +96,23 @@ t = a >> a >> a
 
 t @ t.T      # 5×5 matrix
 t.T @ t      # 3×3 matrix
+```
+
+```python
+a = PyVector(range(3))
+
+# Create a table from raw vectors
+t = a >> a**2
+
+print(t)
+# 0  0  0
+# 1  1  1
+# 2  2  4
+# 
+# 3×3 table <int, int, int>
+
+t.col1_      # Access unnamed column at index 1
+t @ t.T      # 3x3 matrix multiplication
 ```
 
 ---
@@ -121,29 +150,36 @@ Matrix multiplication uses the `@` operator.
 
 ## Column name sanitization
 
-PyVector converts arbitrary column names into safe Python attributes:
+PyVector converts arbitrary column names into safe Python attributes. It enforces a soft distinction between user data and system internals using trailing underscores.
 
-- replace non-alphanumeric characters with `_`  
-- lowercase everything (case-insensitive access)  
-- strip leading/trailing `_`  
-- prefix `_` if name starts with a digit  
-- duplicate sanitized names get `__1`, `__2` suffixes
+**User Rules:**
+- Non-alphanumeric characters become `_`
+- Leading/trailing `_` are **stripped** (e.g., `_price_` becomes `price`)
+- Names starting with a digit get a `c` prefix (e.g., `2025` becomes `c2025`)
+- Duplicate names get `__1`, `__2` suffixes
 
-Examples:
+**System Rules:**
+- Unnamed vectors get reserved system names: `col0_`, `col1_`, etc.
+- Because user names always have trailing `_` stripped, `t.col0_` is always safely available for system use.
+
+**Examples:**
 
 ```python
 t = PyTable({
-    "2023-Q1 Revenue ($M)": [100, 200, 300],
-    "Email (Primary)": ["a@x.com", "b@y.com", "c@z.com"],
-    "Price/Unit €": [1.5, 2.0, 2.5]
+    "2023-Q1 Revenue ($M)": [1, 2],  # Becomes t.c2023_q1_revenue_m
+    "price_": [3, 4],                # Becomes t.price (trailing _ stripped)
+    "c2025": [5, 6],                 # Becomes t.c2025
 })
 
-t._2023_q1_revenue_m     # works
-t.email_primary          # works
-t.price_unit             # works
+t._2023_q1_revenue_m                 # works
+t.email_primary                      # works
+t.price_unit                         # works
+
+# Unnamed vectors rely on system names
+t = t >> PyVector([7, 8])            # Becomes t.col3_
 
 # Case-insensitive access
-t.EMAIL_PRIMARY          # also works
+t.EMAIL_PRIMARY                      # also works
 ```
 
 For duplicate names:

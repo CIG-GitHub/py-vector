@@ -192,7 +192,7 @@ def _printr(pv):
 		formatted_cols = []
 		
 		for idx, col in zip(col_indices, cols_to_display):
-			name = col._name or f'col_{idx+1}'
+			name = col._name or ''  # Use empty string for unnamed columns
 			col_names.append(name)
 			dtype_name = col._dtype.__name__ if col._dtype else 'object'
 			col_dtypes.append(dtype_name)
@@ -203,22 +203,34 @@ def _printr(pv):
 			col_names.insert(num_cols_to_show, '...')
 			formatted_cols.insert(num_cols_to_show, PyVector(['...' for _ in range(len(formatted_cols[0]))]))
 		
-		# Adjust column widths to fit headers
+		# Check if any columns have names
+		has_any_names = any(name for name in col_names if name != '...')
+		
+		# Adjust column widths to fit headers (if we're showing them)
 		aligned_cols = []
 		aligned_names = []
 		for name, col, fmt_col in zip(col_names, cols_to_display if not truncated else cols_to_display[:num_cols_to_show] + cols_to_display[num_cols_to_show:], formatted_cols):
-			width = max(len(name), max(len(cell) for cell in fmt_col._underlying))
+			if has_any_names:
+				width = max(len(name), max(len(cell) for cell in fmt_col._underlying))
+			else:
+				width = max(len(cell) for cell in fmt_col._underlying)
+			
 			# Re-align to new width
 			if not truncated and col._dtype in (int, float):
 				aligned_cols.append(fmt_col.rjust(width))
-				aligned_names.append(name.rjust(width))
+				if has_any_names:
+					aligned_names.append(name.rjust(width) if name else ' ' * width)
 			else:
 				aligned_cols.append(fmt_col.ljust(width))
-				aligned_names.append(name.ljust(width))
+				if has_any_names:
+					aligned_names.append(name.ljust(width))
 		
 		# Build output
 		lines = []
-		lines.append('  '.join(aligned_names))
+		
+		# Only add header row if at least one column has a name
+		if has_any_names:
+			lines.append('  '.join(aligned_names))
 		
 		# Zip columns into rows
 		for row_idx in range(len(aligned_cols[0])):
