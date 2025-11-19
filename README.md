@@ -1,40 +1,62 @@
 # PyVector
-A clean, typed, composable data layer for Python.
-Built for readable data modeling and analysis workflows.
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+
+A clean, typed, composable data layer for Python, built on **PyVector** and **PyTable**.
+
+PyVector provides the foundation; PyTable is your primary tool for readable data modeling and analysis workflows.
+
+## 30-Second Example
+
+```python
+from py_vector import PyTable
+
+# Create a table with automatic column name sanitization
+t = PyTable({
+    "price ($)": [10, 20, 30],
+    "quantity":  [4, 5, 6]
+})
+
+# Add calculated columns with clean >>= syntax
+t >>= (t.price * t.quantity).rename("total")
+t >>= (t.total * 0.1).rename("tax")
+
+print(t)
+# price  quantity  total  tax
+#    10         4     40  4.0
+#    20         5    100 10.0
+#    30         6    180 18.0
+#
+# 3×4 table <int, int, int, float>
+```
 
 ---
 
 ## Installation
 
-    pip install py-vector
+```bash
+pip install py-vector
+```
 
-PyVector has no external dependencies.
-In a fresh environment:
-
-    pip freeze
-    # py-vector==0.x.y
-
-This keeps environments clean, predictable, and easy to embed into modeling systems or application code.
+**Zero external dependencies.** Pure Python stdlib only.
 
 ---
 
-## Why PyVector exists
+## Why PyVector?
 
-PyVector is built for situations where you want:
+- Explicit, predictable vector semantics
+- Tables compose cleanly from vectors
+- Readable "spreadsheet-like" workflows
+- Safe defaults (copy-on-write, alias tracking, immutability)
+- Immediate visual feedback via `__repr__`
+- Zero hidden magic
 
-- explicit, predictable vector semantics
-- tables that compose cleanly from vectors
-- readable "spreadsheet-like" modeling workflows
-- safe defaults (alias tracking, immutable tuples, deterministic operations)
-- zero hidden magic
-
-It is intentionally small and easy to reason about.
+**Sweet spot:** 10K–1M rows (modeling-scale data)
 
 ---
 
 ## Quickstart
 
-### Basic vectors
+### Vectors: elementwise operations
 
 ```python
 from py_vector import PyVector
@@ -47,194 +69,176 @@ a * 2           # PyVector([2, 4, 6, 8, 10])
 a > 3           # PyVector([False, False, False, True, True])
 ```
 
-### Tables from vectors
+### Tables: compose vectors with `>>`
 
 ```python
 from py_vector import PyTable
 
+# Column names auto-sanitize to valid Python attributes
 t = PyTable({
     "first name": [1, 2, 3],
-    "price ($)":  [10, 20, 30],
-    "count@time": [4, 5, 6],
+    "price ($)":  [10, 20, 30]
 })
 
-# Attributes are sanitized automatically
 t.first_name    # PyVector([1, 2, 3])
 t.price         # PyVector([10, 20, 30])
-t.count_time    # PyVector([4, 5, 6])
-```
 
-### Add a new column
-Use the `>>` operator to stream new columns into the table. Explicit naming via `.rename()` is recommended.
-
-```python
-# Calculate, rename, and append in one step
-t = t >> (t.count_time * t.price).rename("total_cost")
-
-# Chain operations cleanly
-t = t >> (t.revenue - t.cost).rename("profit") \
-      >> (t.profit / t.revenue).rename("margin")
+# Add columns with >>= (recommended)
+t >>= (t.first_name * t.price).rename("total")
 ```
 
 ### Boolean masking
 
 ```python
-mask = t.price > 15
-filtered = t[mask]
+filtered = t[t.price > 15]
 ```
 
-### Matrix multiplication
+### Joins
 
 ```python
-a = PyVector(range(3))
+left = PyTable({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
+right = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
 
-# Create a table by piping vectors
-t = a >> a >> a**2
+result = left.inner_join(right, left_on='id', right_on='id')
+```
 
+### Aggregations
+
+```python
+t = PyTable({'customer': ['A', 'B', 'A'], 'amount': [100, 200, 150]})
+
+result = t.aggregate(
+    over=t.customer,
+    sum_over=t.amount,
+    count_over=t.amount
+)
+# Returns 2 rows (one per customer)
+```
+
+**See [docs/joins-aggregations.md](docs/joins-aggregations.md) for detailed examples.**
+
+---
+
+## Key Features
+
+### Automatic `__repr__`: Instant Visual Feedback
+
+```python
+t = PyTable({'id': range(100), 'value': [x**2 for x in range(100)]})
 print(t)
-# 0  0  0
-# 1  1  1
-# 2  2  4
+# id  value
+#  0      0
+#  1      1
+#  2      4
+#  3      9
+#  4     16
+#... ...
+# 95   9025
+# 96   9216
+# 97   9409
+# 98   9604
+# 99   9801
 #
-# 3×3 table <int, int, int>
-
-t.col1_      # Access unnamed column at index 1
-t @ t.T      # 3x3 matrix multiplication
+# 100×2 table <int, int>
 ```
 
----
+Head/tail preview + type annotations + dimensions—no need for `.head()`, `.info()`, etc.
 
-## Core concepts
+### Column Name Sanitization
 
-### PyVector
-A typed iterable with value semantics:
-
-- elementwise math and comparison
-- optional type safety
-- alias tracking prevents accidental mutation of shared data
-- fingerprinting for O(1) change detection
-- predictable behavior across numeric, string, and date types
-
-### PyTable
-A table is a vector of equal-length vectors:
-
-- column-oriented storage
-- stable semantics
-- deep copy on construction (no aliasing)
-- attribute access for valid column names
-- fully composable
-
-### Transpose
-```python
-t.T      # swap rows/columns
-```
-
-### Math
-Elementwise by default.
-Matrix multiplication uses the `@` operator.
-
----
-
-## Column name sanitization
-
-PyVector converts arbitrary column names into safe Python attributes. It enforces a soft distinction between user data and system internals using trailing underscores.
-
-**User Rules:**
-- Non-alphanumeric characters become `_`
-- Leading/trailing `_` are **stripped** (e.g., `_price_` becomes `price`)
-- Names starting with a digit get a `c` prefix (e.g., `2025` becomes `c2025`)
-- Duplicate names get `__1`, `__2` suffixes
-
-**System Rules:**
-- Unnamed vectors get reserved system names: `col0_`, `col1_`, etc.
-- Because user names always have trailing `_` stripped, `t.col0_` is always safely available for system use.
-
-**Examples:**
+Non-alphanumeric characters become `_`, leading digits get `c` prefix:
 
 ```python
-t = PyTable({
-    "2023-Q1 Revenue ($M)": [1, 2],  # Becomes t.c2023_q1_revenue_m (digit rule)
-    "price_": [3, 4],                # Becomes t.price (trailing _ stripped)
-    "email": [5, 6],                 # Becomes t.email
-})
-
-t.c2023_q1_revenue_m                 # works
-t.price                              # works
-
-# Unnamed vectors rely on system names
-t = t >> PyVector([7, 8])            # Becomes t.col3_
+t = PyTable({"2023-Q1 Revenue ($M)": [1, 2, 3]})
+t.c2023_q1_revenue_m  # Deterministic, predictable access
 ```
 
-For duplicate names:
-```python
-t = PyTable({"price ($)": [1, 2], "Price ($)": [3, 4]})
-t.price      # first column
-t.price__1   # second column
-```
+Unnamed columns use system names: `t.col0_`, `t.col1_`, etc.
 
----
+### Typed Subclasses
 
-## Common patterns
-
-### Select multiple columns
-
-```python
-subset = t["first name", "count_time"]
-```
-
-### Combined boolean logic
-
-```python
-mask = (t.price > 10) & (t.count_time < 6)
-filtered = t[mask]
-```
-
-### Working with dates
+PyVector auto-creates typed subclasses with method proxying:
 
 ```python
 from datetime import date
 
-d = PyVector([date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)])
-d + 5           # add 5 days
-d > date(2024, 1, 2)  # boolean comparison
+dates = PyVector([date(2024, 1, 1), date(2024, 1, 2)])
+dates.year()       # PyVector([2024, 2024])
+dates + 5          # Add 5 days
 ```
 
-### Nested structures
+Works for `int`, `float`, `str`, `date` types.
+
+---
+
+## Common Gotchas
+
+### Don't use subscript lists—use boolean masks
 
 ```python
-outer = PyTable([t, t])
-outer.size()    # (2, 3, 3)
+# ANTI-PATTERN
+indices = [1, 5, 9]
+result = v[indices]  # Slow, emits warning
+
+# IDIOMATIC
+mask = (v > threshold)
+result = v[mask]
 ```
 
-### Ledgers and totals
-
-Append rows using `<<`. Useful for adding totals or creating ledgers.
+### Operator overloading: avoid `.index()` on PyVector lists
 
 ```python
-# Calculate column sums (returns a row vector)
-totals = sum(t)
+# WRONG: invokes elementwise equality
+cols = [table.year, table.month]
+idx = cols.index(table.year)  # Returns boolean vector!
 
-# Append totals to the bottom of the table
-t = t << totals
+# CORRECT: use enumerate
+for idx, col in enumerate(cols):
+    if col is table.year:  # identity check
+        ...
+```
+
+### `None` handling
+
+`None` is excluded from aggregations but counted in `len()`:
+
+```python
+v = PyVector([10, None, 20])
+sum(v)    # 30 (None excluded)
+len(v)    # 3 (None counted)
 ```
 
 ---
 
-## Design trade-offs
+## Design Philosophy
 
-PyVector prioritizes **clarity and predictable behavior** over raw speed.
+PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
 
-What you gain:
-- Readable code that's easy to debug
-- No hidden state or aliasing bugs
+**What you get:**
+- Readable, debuggable code
+- No hidden state or aliasing bugs (copy-on-write)
 - Deterministic operations
 - Zero dependencies
+- O(1) fingerprinting for change detection
 
-What you trade:
-- Not optimized for large-scale numerical computing
-- Slower than NumPy/Pandas for multi-million row operations
+**When to use PyVector:**
+- 10K–1M rows (modeling-scale data)
+- Correctness and maintainability matter most
+- Jupyter notebook workflows
 
-PyVector performs well for modeling-scale data (thousands to low millions of rows). For workflows where correctness and maintainability matter most, it keeps code clean and explicit.
+**When to use alternatives:**
+- 10M+ rows → NumPy/Polars
+- Deep learning → PyTorch/JAX
+
+---
+
+## Further Documentation
+
+- **[Performance & Complexity](docs/performance.md)** — O(n) analysis for joins, aggregations, indexing
+- **[Exception Handling](docs/exceptions.md)** — Custom exception types and error handling
+- **[Aliasing & Fingerprints](docs/aliasing.md)** — Copy-on-write and change detection
+- **[Joins & Aggregations](docs/joins-aggregations.md)** — Detailed examples and patterns
+- **[Development Guide](docs/development.md)** — Running tests, project structure
 
 ---
 
@@ -243,7 +247,6 @@ PyVector performs well for modeling-scale data (thousands to low millions of row
 - Clarity beats cleverness
 - Explicit beats implicit
 - Modeling should feel intuitive
-- Tables are just vectors composed cleanly
 - You should always know what your code is doing
 
 ---

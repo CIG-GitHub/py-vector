@@ -896,7 +896,7 @@ class PyVector():
 	def __matmul__(self, other):
 		""" Recursive matrix multiplication - I think this applies to all tensor contraction, but could be wrong """
 		other = self._check_duplicate(other)
-		if isinstance(other, PyTable):
+		if type(other).__name__ == 'PyTable':
 			return PyVector(tuple(self @ z for z in other.cols()))
 		return sum(x*y for x, y in zip(self._underlying, other._underlying, strict=True))
 		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
@@ -956,7 +956,7 @@ class PyVector():
 		if self._dtype in (bool, int) and isinstance(other, int):
 			warnings.warn(f"The behavior of >> and << have been overridden for concatenation. Use .bitshift() to shift bits.")
 
-		if isinstance(other, PyTable):
+		if type(other).__name__ == 'PyTable':
 			if self._typesafe and other._typesafe and self._dtype != other._dtype:
 				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
