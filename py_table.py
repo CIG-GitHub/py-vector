@@ -1,0 +1,597 @@
+import warnings
+from py_vector import PyVector, _sanitize_user_name, _uniquify
+
+
+class PyTable(PyVector):
+	""" Multiple columns of the same length """
+	_length = None
+	
+	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+		return super(PyVector, cls).__new__(cls)
+
+	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+		# Handle dict initialization {name: values, ...}
+		if isinstance(initial, dict):
+			initial = [PyVector(values, name=col_name) for col_name, values in initial.items()]
+		
+		self._length = len(initial[0]) if initial else 0
+		
+		# Deep copy columns to enforce value semantics
+		# Tables receive snapshots of vectors, preventing aliasing
+		# Preserve names through the copy (name=... means preserve)
+		initial = [vec.copy(name=vec._name) for vec in initial] if initial else ()
+		
+		return super().__init__(
+			initial,
+			default_element=default_element,
+			dtype=dtype,
+			typesafe=typesafe,
+			name=name)
+
+	def __len__(self):
+		if not self:
+			return 0
+		if isinstance(self._underlying[0], PyTable):
+			return len(self._underlying)
+		return self._length
+
+	def size(self):
+		return (len(self),) + self[0].size()
+
+	def __dir__(self):
+		sanitized_names = []
+		seen = set()
+		for idx, col in enumerate(self._underlying):
+			if col._name is not None:
+				base = _sanitize_user_name(col._name)
+				# If sanitization returns None (empty after stripping), use system name
+				if base is None:
+					sanitized_names.append(f'col{idx}_')
+				else:
+					unique_name = _uniquify(base, seen)
+					seen.add(unique_name)
+					sanitized_names.append(unique_name)
+			else:
+				# Unnamed columns get system names: col0_, col1_, etc.
+				sanitized_names.append(f'col{idx}_')
+		return dir(PyVector) + sanitized_names
+
+	def __getattr__(self, attr):
+		# Build sanitized name mapping with uniquification
+		attr_lower = attr.lower()
+		seen = set()
+		for idx, col in enumerate(self._underlying):
+			if col._name is not None:
+				base = _sanitize_user_name(col._name)
+				# If sanitization returns None, match system name
+				if base is None:
+					if f'col{idx}_' == attr_lower:
+						return col
+				else:
+					unique_name = _uniquify(base, seen)
+					seen.add(unique_name)
+					if unique_name == attr_lower:
+						return col
+			else:
+				# Unnamed columns: match col{idx}_ pattern
+				if f'col{idx}_' == attr_lower:
+					return col
+		
+		return None
+
+	def rename_column(self, old_name, new_name):
+		"""Rename a column (modifies in place, returns self for chaining)"""
+		for col in self._underlying:
+			if col._name == old_name:
+				col._name = new_name
+				return self
+		raise KeyError(f"Column '{old_name}' not found")
+	
+	def rename_columns(self, old_names, new_names):
+		"""
+		Atomically rename multiple columns using parallel old_names and new_names lists.
+
+		Rules:
+		- old_names and new_names must be same length
+		- each list-element renames EXACTLY ONE matching occurrence
+		(left-to-right positional matching)
+		- if renaming fails (old name not found), no columns are renamed and KeyError is raised
+		"""
+
+		if len(old_names) != len(new_names):
+			raise ValueError("old_names and new_names must have the same length")
+
+		# Simulate renames using a temporary list (avoid mid-state partial renames)
+		simulated = [col._name for col in self._underlying]
+
+		for old, new in zip(old_names, new_names):
+			try:
+				idx = simulated.index(old)
+			except ValueError:
+				raise KeyError(f"Column '{old}' not found")
+			simulated[idx] = new  # simulate rename
+
+		# Apply renames for real
+		for old, new in zip(old_names, new_names):
+			# rename the FIRST matching column in the real table
+			for col in self._underlying:
+				if col._name == old:
+					col._name = new
+					break
+
+		return self
+
+	@property
+	def T(self):
+		if len(self.size())==2:
+			# Transpose 2D table: columns become rows
+			num_rows = self._length
+			num_cols = len(self._underlying)
+			rows = []
+			for row_idx in range(num_rows):
+				row = PyVector([col[row_idx] for col in self._underlying])
+				rows.append(row)
+			return PyTable(rows)
+		return self.copy((tuple(x.T for x in self))) # higher dimensions
+
+	def __getitem__(self, key):
+		key = self._check_duplicate(key)
+		
+		# Handle string indexing for column names
+		if isinstance(key, str):
+			# Try exact match first
+			for col in self._underlying:
+				if col._name == key:
+					return col
+			
+			# Try sanitized match (case-insensitive)
+			key_lower = key.lower()
+			seen = set()
+			for idx, col in enumerate(self._underlying):
+				if col._name is not None:
+					base = _sanitize_user_name(col._name)
+					# If sanitization returns None, match system name
+					if base is None:
+						if f'col{idx}_' == key_lower:
+							return col
+					else:
+						unique_name = _uniquify(base, seen)
+						seen.add(unique_name)
+						if unique_name == key_lower:
+							return col
+				else:
+					# Unnamed columns: match col{idx}_ pattern
+					if f'col{idx}_' == key_lower:
+						return col
+			
+			raise KeyError(f"Column '{key}' not found")
+		
+		# Handle tuple of strings for multi-column selection
+		if isinstance(key, tuple) and all(isinstance(k, str) for k in key):
+			# Multiple column selection by names
+			selected_cols = []
+			for col_name in key:
+				found = False
+				# Try exact match first
+				for col in self._underlying:
+					if col._name == col_name:
+						selected_cols.append(col.copy())  # Copy to preserve original
+						found = True
+						break
+				
+				# Try sanitized match (case-insensitive)
+				if not found:
+					col_name_lower = col_name.lower()
+					seen = set()
+					for idx, col in enumerate(self._underlying):
+						if col._name is not None:
+							base = _sanitize_user_name(col._name)
+							if base is None:
+								if f'col{idx}_' == col_name_lower:
+									selected_cols.append(col.copy())
+									found = True
+									break
+							else:
+								unique_name = _uniquify(base, seen)
+								seen.add(unique_name)
+								if unique_name == col_name_lower:
+									selected_cols.append(col.copy())
+									found = True
+									break
+						else:
+							if f'col{idx}_' == col_name_lower:
+								selected_cols.append(col.copy())
+								found = True
+								break
+				
+				if not found:
+					raise KeyError(f"Column '{col_name}' not found")
+			return PyTable(selected_cols)
+		
+		if isinstance(key, tuple):
+			if len(key) != len(self.size()):
+				raise KeyError(f'Matrix indexing must provide an index in each dimension: {self.size()}')
+			# for now.
+			if len(key) > 2:
+				return self[key[0]][key[1:]]
+
+			if isinstance(key[0], slice):
+				if isinstance(key[1], int):
+					return self.cols(key[1])[key[0]]
+				return self.copy([col[key[0]] for col in self.cols()[key[1]]])
+			return self[key[0]]._underlying[key[1]]
+
+		if isinstance(key, int):
+			# Effectively a different input type (single not a list). Returning a value, not a vector.
+			if isinstance(self._underlying[0], PyTable):
+				return self._underlying[key]
+			return PyVector(tuple(col[key] for col in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			).T
+
+		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
+			assert (len(self) == len(key))
+			return PyVector(tuple(x[key] for x in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+		if isinstance(key, list) and {type(e) for e in key} == {bool}:
+			assert (len(self) == len(key))
+			return PyVector(tuple(x[key] for x in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+		if isinstance(key, slice):
+			return PyVector(tuple(x[key] for x in self._underlying), 
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe,
+				name=self._name
+			)
+
+		# NOT RECOMMENDED
+		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
+			if len(self) > 1000:
+				warnings.warn('Subscript indexing is sub-optimal for large vectors')
+			return PyVector(tuple(x[key] for x in self._underlying),
+				default_element = self._default,
+				dtype = self._dtype,
+				typesafe = self._typesafe
+			)
+
+	def __iter__(self):
+		current = 0
+		while current < len(self):
+			yield self[current]
+			current += 1
+
+	def __repr__(self):
+		from py_vector import _printr
+		return _printr(self)
+
+	def __matmul__(self, other):
+		if isinstance(other, PyVector):
+			# we want the sum to operate 'in place' on integers
+			if other.ndims() == 1:
+				return PyVector(tuple(sum(u*v for u, v in zip(s._underlying, other._underlying)) for s in self))
+			return self.copy(tuple(self.copy(tuple(x@y for x in other.cols())) for y in self)).T
+		return super().__matmul__(other)
+
+	def _elementwise_compare(self, other, op):
+		other = self._check_duplicate(other)
+		if isinstance(other, PyVector):
+			# Raise mismatched lengths
+			assert len(self) == len(other)
+			return PyVector(tuple(op(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)), False, bool, True)
+		if hasattr(other, '__iter__'):
+			# Raise mismatched lengths
+			assert len(self) == len(other)
+			return PyVector(tuple(op(x, y) for x, y in zip(self, other, strict=True)), False, bool, True).T
+		return PyVector(tuple(op(x, other) for x in self.cols()), False, bool, True)
+
+	def __rshift__(self, other):
+		""" The >> operator behavior has been overridden to add the column(s) of other to self
+		"""
+		if self._dtype in (bool, int) and isinstance(other, int):
+			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
+
+		if isinstance(other, PyTable):
+			if self._typesafe and other._typesafe and self._dtype != other._dtype:
+				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+			# complicated typesafety rules here - what if a whole bunch of things.
+			return PyVector(self.cols() + other.cols(),
+				self._default, # self does not inherit other's default element
+				self._dtype or other._dtype,
+				self._typesafe or other._typesafe)
+		if isinstance(other, PyVector):
+			if self._typesafe and other._typesafe and self._dtype != other._dtype:
+				raise TypeError("Cannot concatenate two typesafe PyVectors of different types")
+			# complicated typesafety rules here - what if a whole bunch of things.
+			return PyVector(self.cols() + (other,),
+				self._default, # self does not inherit other's default element
+				self._dtype or other._dtype,
+				self._typesafe or other._typesafe)
+		elif not self:
+			return PyVector((other,),
+				self._default, # self does not inherit other's default element
+				self._dtype,
+				self._typesafe)
+		raise TypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
+
+	def __lshift__(self, other):
+		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
+		"""
+		if isinstance(other, PyTable):
+			return PyVector([x << y for x, y in zip(self._underlying, other._underlying, strict=True)])
+		return PyVector([x << y for x, y in zip(self._underlying, other, strict=True)])
+
+	def inner_join(self, other, on, expect='many_to_one'):
+		"""
+		Inner join two PyTables on specified key columns.
+		Only returns rows where keys match in both tables.
+		
+		Args:
+			other: PyTable to join with
+			on: List of tuples [(left_col, right_col), ...] specifying join keys
+			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
+		
+		Returns:
+			PyTable with joined results
+		"""
+		# Extract join key columns from left (self) and right (other)
+		left_keys = [left_col for left_col, _ in on]
+		right_keys = [right_col for _, right_col in on]
+		
+		# Build hash map: right_key_tuple -> list of right row indices
+		right_index = {}
+		for row_idx in range(len(other)):
+			key = tuple(right_keys[i][row_idx] for i in range(len(right_keys)))
+			if key not in right_index:
+				right_index[key] = []
+			right_index[key].append(row_idx)
+		
+		# Check cardinality expectations on right side
+		if expect in ('one_to_one', 'many_to_one'):
+			# Right side must have unique keys
+			duplicates = {k: indices for k, indices in right_index.items() if len(indices) > 1}
+			if duplicates:
+				raise ValueError(
+					f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
+					f"Found {len(duplicates)} duplicate key(s), e.g., {list(duplicates.keys())[0]} "
+					f"appears {len(list(duplicates.values())[0])} times."
+				)
+		
+		# Track left side key uniqueness for one_to_many and one_to_one
+		if expect in ('one_to_one', 'one_to_many'):
+			left_keys_seen = set()
+		
+		# Perform join
+		result_rows = []
+		for left_idx in range(len(self)):
+			key = tuple(left_keys[i][left_idx] for i in range(len(left_keys)))
+			
+			# Check one_to_many / one_to_one constraint
+			if expect in ('one_to_one', 'one_to_many'):
+				if key in left_keys_seen:
+					raise ValueError(
+						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
+					)
+				left_keys_seen.add(key)
+			
+			# Find matching right rows
+			if key in right_index:
+				for right_idx in right_index[key]:
+					# Combine left and right rows
+					left_row = [col[left_idx] for col in self._underlying]
+					right_row = [col[right_idx] for col in other._underlying]
+					result_rows.append(left_row + right_row)
+		
+		if not result_rows:
+			# Empty join result
+			return PyTable([])
+		
+		# Transpose result_rows to get columns
+		num_cols = len(self._underlying) + len(other._underlying)
+		result_cols = []
+		for col_idx in range(num_cols):
+			col_data = [row[col_idx] for row in result_rows]
+			
+			# Preserve column names
+			if col_idx < len(self._underlying):
+				# Left table column
+				orig_col = self._underlying[col_idx]
+				result_cols.append(PyVector(col_data, name=orig_col._name))
+			else:
+				# Right table column
+				orig_col = other._underlying[col_idx - len(self._underlying)]
+				result_cols.append(PyVector(col_data, name=orig_col._name))
+		
+		return PyTable(result_cols)
+
+	def join(self, other, on, expect='many_to_one'):
+		"""
+		Left join two PyTables on specified key columns.
+		Returns all rows from left table, with matching rows from right (or None for no match).
+		
+		Args:
+			other: PyTable to join with
+			on: List of tuples [(left_col, right_col), ...] specifying join keys
+			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
+		
+		Returns:
+			PyTable with joined results
+		"""
+		# Extract join key columns from left (self) and right (other)
+		left_keys = [left_col for left_col, _ in on]
+		right_keys = [right_col for _, right_col in on]
+		
+		# Build hash map: right_key_tuple -> list of right row indices
+		right_index = {}
+		for row_idx in range(len(other)):
+			key = tuple(right_keys[i][row_idx] for i in range(len(right_keys)))
+			if key not in right_index:
+				right_index[key] = []
+			right_index[key].append(row_idx)
+		
+		# Check cardinality expectations on right side
+		if expect in ('one_to_one', 'many_to_one'):
+			# Right side must have unique keys
+			duplicates = {k: indices for k, indices in right_index.items() if len(indices) > 1}
+			if duplicates:
+				raise ValueError(
+					f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
+					f"Found {len(duplicates)} duplicate key(s), e.g., {list(duplicates.keys())[0]} "
+					f"appears {len(list(duplicates.values())[0])} times."
+				)
+		
+		# Track left side key uniqueness for one_to_many and one_to_one
+		if expect in ('one_to_one', 'one_to_many'):
+			left_keys_seen = set()
+		
+		# Perform left join
+		result_rows = []
+		for left_idx in range(len(self)):
+			key = tuple(left_keys[i][left_idx] for i in range(len(left_keys)))
+			
+			# Check one_to_many / one_to_one constraint
+			if expect in ('one_to_one', 'one_to_many'):
+				if key in left_keys_seen:
+					raise ValueError(
+						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
+					)
+				left_keys_seen.add(key)
+			
+			# Find matching right rows
+			if key in right_index:
+				for right_idx in right_index[key]:
+					# Combine left and right rows
+					left_row = [col[left_idx] for col in self._underlying]
+					right_row = [col[right_idx] for col in other._underlying]
+					result_rows.append(left_row + right_row)
+			else:
+				# No match: left row with None for right columns
+				left_row = [col[left_idx] for col in self._underlying]
+				right_row = [None] * len(other._underlying)
+				result_rows.append(left_row + right_row)
+		
+		if not result_rows:
+			# Empty result
+			return PyTable([])
+		
+		# Transpose result_rows to get columns
+		num_cols = len(self._underlying) + len(other._underlying)
+		result_cols = []
+		for col_idx in range(num_cols):
+			col_data = [row[col_idx] for row in result_rows]
+			
+			# Preserve column names
+			if col_idx < len(self._underlying):
+				# Left table column
+				orig_col = self._underlying[col_idx]
+				result_cols.append(PyVector(col_data, name=orig_col._name))
+			else:
+				# Right table column
+				orig_col = other._underlying[col_idx - len(self._underlying)]
+				result_cols.append(PyVector(col_data, name=orig_col._name))
+		
+		return PyTable(result_cols)
+
+	def full_join(self, other, on, expect='many_to_many'):
+		"""
+		Full outer join two PyTables on specified key columns.
+		Returns all rows from both tables, with None where no match exists.
+		
+		Args:
+			other: PyTable to join with
+			on: List of tuples [(left_col, right_col), ...] specifying join keys
+			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
+		
+		Returns:
+			PyTable with joined results
+		"""
+		# Extract join key columns from left (self) and right (other)
+		left_keys = [left_col for left_col, _ in on]
+		right_keys = [right_col for _, right_col in on]
+		
+		# Build hash maps for both sides
+		right_index = {}
+		for row_idx in range(len(other)):
+			key = tuple(right_keys[i][row_idx] for i in range(len(right_keys)))
+			if key not in right_index:
+				right_index[key] = []
+			right_index[key].append(row_idx)
+		
+		# Check cardinality expectations on right side
+		if expect in ('one_to_one', 'many_to_one'):
+			duplicates = {k: indices for k, indices in right_index.items() if len(indices) > 1}
+			if duplicates:
+				raise ValueError(
+					f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
+					f"Found {len(duplicates)} duplicate key(s), e.g., {list(duplicates.keys())[0]} "
+					f"appears {len(list(duplicates.values())[0])} times."
+				)
+		
+		# Track left side key uniqueness
+		if expect in ('one_to_one', 'one_to_many'):
+			left_keys_seen = set()
+		
+		# Track which right rows have been matched
+		matched_right_rows = set()
+		
+		# Perform left side of full join
+		result_rows = []
+		for left_idx in range(len(self)):
+			key = tuple(left_keys[i][left_idx] for i in range(len(left_keys)))
+			
+			# Check one_to_many / one_to_one constraint
+			if expect in ('one_to_one', 'one_to_many'):
+				if key in left_keys_seen:
+					raise ValueError(
+						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
+					)
+				left_keys_seen.add(key)
+			
+			# Find matching right rows
+			if key in right_index:
+				for right_idx in right_index[key]:
+					matched_right_rows.add(right_idx)
+					# Combine left and right rows
+					left_row = [col[left_idx] for col in self._underlying]
+					right_row = [col[right_idx] for col in other._underlying]
+					result_rows.append(left_row + right_row)
+			else:
+				# No match: left row with None for right columns
+				left_row = [col[left_idx] for col in self._underlying]
+				right_row = [None] * len(other._underlying)
+				result_rows.append(left_row + right_row)
+		
+		# Add unmatched right rows
+		for right_idx in range(len(other)):
+			if right_idx not in matched_right_rows:
+				left_row = [None] * len(self._underlying)
+				right_row = [col[right_idx] for col in other._underlying]
+				result_rows.append(left_row + right_row)
+		
+		if not result_rows:
+			# Empty result
+			return PyTable([])
+		
+		# Transpose result_rows to get columns
+		num_cols = len(self._underlying) + len(other._underlying)
+		result_cols = []
+		for col_idx in range(num_cols):
+			col_data = [row[col_idx] for row in result_rows]
+			
+			# Preserve column names
+			if col_idx < len(self._underlying):
+				orig_col = self._underlying[col_idx]
+				result_cols.append(PyVector(col_data, name=orig_col._name))
+			else:
+				orig_col = other._underlying[col_idx - len(self._underlying)]
+				result_cols.append(PyVector(col_data, name=orig_col._name))
+		
+		return PyTable(result_cols)

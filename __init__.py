@@ -18,7 +18,8 @@ Zero external dependencies - pure Python stdlib only.
 """
 
 from _alias_tracker import _ALIAS_TRACKER, AliasError
-from py_vector import PyVector, PyTable, _PyFloat, _PyInt, _PyString, _PyDate
+from py_vector import PyVector, _PyFloat, _PyInt, _PyString, _PyDate
+from py_table import PyTable
 
 __version__ = "0.1.0"
-__all__ = ["PyVector", "PyTable", "_PyFloat", "_PyInt", "_PyString", "_PyDate"]
+__all__ = ["PyVector", "PyTable", "AliasError"]
