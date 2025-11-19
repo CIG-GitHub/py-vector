@@ -1,95 +1,95 @@
 import pytest
-from py_vector import _sanitize_name, PyVector, PyTable
+from py_vector import _sanitize_user_name, PyVector, PyTable
 
 
 def test_sanitize_simple_name():
 	"""Test that simple valid names are lowercased"""
-	assert _sanitize_name("column") == "column"
-	assert _sanitize_name("col_1") == "col_1"
-	assert _sanitize_name("MyColumn") == "mycolumn"
+	assert _sanitize_user_name("column") == "column"
+	assert _sanitize_user_name("col_1") == "col_1"
+	assert _sanitize_user_name("MyColumn") == "mycolumn"
 
 
 def test_sanitize_spaces():
 	"""Test that spaces are replaced with underscores"""
-	assert _sanitize_name("first name") == "first_name"
-	assert _sanitize_name("a b c") == "a_b_c"
+	assert _sanitize_user_name("first name") == "first_name"
+	assert _sanitize_user_name("a b c") == "a_b_c"
 
 
 def test_sanitize_special_chars():
 	"""Test that special characters are replaced with underscores"""
-	assert _sanitize_name("name-with-dashes") == "name_with_dashes"
-	assert _sanitize_name("price$") == "price"
-	assert _sanitize_name("percent%") == "percent"
-	assert _sanitize_name("name@domain") == "name_domain"
-	assert _sanitize_name("col.with.dots") == "col_with_dots"
+	assert _sanitize_user_name("name-with-dashes") == "name_with_dashes"
+	assert _sanitize_user_name("price$") == "price"
+	assert _sanitize_user_name("percent%") == "percent"
+	assert _sanitize_user_name("name@domain") == "name_domain"
+	assert _sanitize_user_name("col.with.dots") == "col_with_dots"
 
 
 def test_sanitize_collapse_underscores():
 	"""Test that user underscores are preserved (not collapsed)"""
-	assert _sanitize_name("a__b") == "a__b"
-	assert _sanitize_name("a___b") == "a___b"
-	assert _sanitize_name("multiple____underscores") == "multiple____underscores"
+	assert _sanitize_user_name("a__b") == "a__b"
+	assert _sanitize_user_name("a___b") == "a___b"
+	assert _sanitize_user_name("multiple____underscores") == "multiple____underscores"
 
 
 def test_sanitize_strip_underscores():
 	"""Test that leading/trailing underscores are stripped"""
-	assert _sanitize_name("_leading") == "leading"
-	assert _sanitize_name("trailing_") == "trailing"
-	assert _sanitize_name("_both_") == "both"
-	assert _sanitize_name("__multiple__") == "multiple"
+	assert _sanitize_user_name("_leading") == "leading"
+	assert _sanitize_user_name("trailing_") == "trailing"
+	assert _sanitize_user_name("_both_") == "both"
+	assert _sanitize_user_name("__multiple__") == "multiple"
 
 
 def test_sanitize_starts_with_digit():
-	"""Test that names starting with digits get prefixed with underscore"""
-	assert _sanitize_name("123") == "_123"
-	assert _sanitize_name("2nd_column") == "_2nd_column"
-	assert _sanitize_name("99problems") == "_99problems"
+	"""Test that names starting with digits get prefixed with 'c'"""
+	assert _sanitize_user_name("123") == "c123"
+	assert _sanitize_user_name("2nd_column") == "c2nd_column"
+	assert _sanitize_user_name("99problems") == "c99problems"
 
 
 def test_sanitize_empty_result():
-	"""Test that names that become empty return 'col'"""
-	assert _sanitize_name("") == "col"
-	assert _sanitize_name("___") == "col"
-	assert _sanitize_name("$$$") == "col"
-	assert _sanitize_name("@#$%") == "col"
+	"""Test that names that become empty return None"""
+	assert _sanitize_user_name("") is None
+	assert _sanitize_user_name("___") is None
+	assert _sanitize_user_name("$$$") is None
+	assert _sanitize_user_name("@#$%") is None
 
 
 def test_sanitize_unicode():
 	"""Test that unicode characters are handled by isalnum()"""
-	assert _sanitize_name("naïve") == "naïve"  # ï is alphanumeric in unicode
-	assert _sanitize_name("café") == "café"  # é is alphanumeric in unicode
-	assert _sanitize_name("αβγ") == "αβγ"  # Greek letters are alphanumeric
+	assert _sanitize_user_name("naïve") == "naïve"  # ï is alphanumeric in unicode
+	assert _sanitize_user_name("café") == "café"  # é is alphanumeric in unicode
+	assert _sanitize_user_name("αβγ") == "αβγ"  # Greek letters are alphanumeric
 
 
 def test_sanitize_mixed_complexity():
 	"""Test complex real-world scenarios"""
-	assert _sanitize_name("User ID") == "user_id"
-	assert _sanitize_name("2023-Revenue ($)") == "_2023_revenue"
-	assert _sanitize_name("__private__var__") == "private__var"
-	assert _sanitize_name("column.1.data") == "column_1_data"
+	assert _sanitize_user_name("User ID") == "user_id"
+	assert _sanitize_user_name("2023-Revenue ($)") == "c2023_revenue"
+	assert _sanitize_user_name("__private__var__") == "private__var"
+	assert _sanitize_user_name("column.1.data") == "column_1_data"
 
 
 def test_sanitize_non_string_input():
 	"""Test that non-string inputs are converted to strings first"""
-	assert _sanitize_name(123) == "_123"
-	assert _sanitize_name(45.67) == "_45_67"
-	assert _sanitize_name(None) == "none"
+	assert _sanitize_user_name(123) == "c123"
+	assert _sanitize_user_name(45.67) == "c45_67"
+	assert _sanitize_user_name(None) == "none"
 
 
 def test_sanitize_preserves_valid_python_identifiers():
 	"""Test that identifiers are lowercased and sanitized"""
-	assert _sanitize_name("valid_identifier") == "valid_identifier"
-	assert _sanitize_name("_private") == "private"  # Leading _ stripped
-	assert _sanitize_name("CamelCase") == "camelcase"
-	assert _sanitize_name("snake_case_name") == "snake_case_name"
+	assert _sanitize_user_name("valid_identifier") == "valid_identifier"
+	assert _sanitize_user_name("_private") == "private"  # Leading _ stripped
+	assert _sanitize_user_name("CamelCase") == "camelcase"
+	assert _sanitize_user_name("snake_case_name") == "snake_case_name"
 
 
 def test_sanitize_csv_headers():
 	"""Test sanitization of typical messy CSV column names"""
-	assert _sanitize_name("First Name") == "first_name"
-	assert _sanitize_name("Email Address (Primary)") == "email_address_primary"
-	assert _sanitize_name("Price ($USD)") == "price_usd"
-	assert _sanitize_name("Q1 2023 Revenue") == "q1_2023_revenue"
+	assert _sanitize_user_name("First Name") == "first_name"
+	assert _sanitize_user_name("Email Address (Primary)") == "email_address_primary"
+	assert _sanitize_user_name("Price ($USD)") == "price_usd"
+	assert _sanitize_user_name("Q1 2023 Revenue") == "q1_2023_revenue"
 
 
 
@@ -163,22 +163,22 @@ def test_table_dir_sanitized():
 
 
 def test_table_unnamed_columns():
-	"""Test that unnamed columns get col_1, col_2, etc."""
+	"""Test that unnamed columns get col0_, col1_, etc."""
 	col1 = PyVector([1, 2, 3])
 	col2 = PyVector([4, 5, 6])
 	col3 = PyVector([7, 8, 9])
 	t = PyTable([col1, col2, col3])
 	
-	# Attribute access with col_N
-	assert list(t.col_1) == [1, 2, 3]
-	assert list(t.col_2) == [4, 5, 6]
-	assert list(t.col_3) == [7, 8, 9]
+	# Attribute access with col{idx}_
+	assert list(t.col0_) == [1, 2, 3]
+	assert list(t.col1_) == [4, 5, 6]
+	assert list(t.col2_) == [7, 8, 9]
 	
-	# __dir__ should show col_1, col_2, col_3
+	# __dir__ should show col0_, col1_, col2_
 	dir_names = t.__dir__()
-	assert 'col_1' in dir_names
-	assert 'col_2' in dir_names
-	assert 'col_3' in dir_names
+	assert 'col0_' in dir_names
+	assert 'col1_' in dir_names
+	assert 'col2_' in dir_names
 
 
 def test_table_mixed_named_unnamed():
@@ -192,20 +192,20 @@ def test_table_mixed_named_unnamed():
 	assert list(t.alpha) == [1, 2, 3]
 	assert list(t.gamma) == [7, 8, 9]
 	
-	# Unnamed column accessible as col_2
-	assert list(t.col_2) == [4, 5, 6]
+	# Unnamed column accessible as col1_
+	assert list(t.col1_) == [4, 5, 6]
 
 
 def test_table_getattr_starts_with_digit():
-	"""Test that column names starting with digits get prefixed with _"""
+	"""Test that column names starting with digits get prefixed with 'c'"""
 	t = PyTable({
 		'2023 Revenue': [100, 200, 300],
 		'1st Place': [1, 2, 3]
 	})
 	
-	# Sanitized names with leading underscore (lowercase)
-	assert list(t._2023_revenue) == [100, 200, 300]
-	assert list(t._1st_place) == [1, 2, 3]
+	# Sanitized names with 'c' prefix (lowercase)
+	assert list(t.c2023_revenue) == [100, 200, 300]
+	assert list(t.c1st_place) == [1, 2, 3]
 
 
 def test_table_getitem_priority():
@@ -224,7 +224,7 @@ def test_table_getitem_priority():
 
 
 def test_table_empty_column_name():
-	"""Test that empty/special-only column names still accessible"""
+	"""Test that empty/special-only column names get system names"""
 	t = PyTable({
 		'': [1, 2, 3],
 		'   ': [4, 5, 6],  # All spaces
@@ -236,8 +236,10 @@ def test_table_empty_column_name():
 	assert list(t['   ']) == [4, 5, 6]
 	assert list(t['$$$']) == [7, 8, 9]
 	
-	# All three sanitize to 'col', so attribute access gets first match
-	assert list(t.col) == [1, 2, 3]
+	# All three sanitize to None, so they get system names col0_, col1_, col2_
+	assert list(t.col0_) == [1, 2, 3]
+	assert list(t.col1_) == [4, 5, 6]
+	assert list(t.col2_) == [7, 8, 9]
 
 
 def test_sanitization_preserves_camelcase():

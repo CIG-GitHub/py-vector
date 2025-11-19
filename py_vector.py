@@ -8,17 +8,17 @@ from datetime import date
 from datetime import datetime
 
 
-def _sanitize_name(name: str) -> str:
+def _sanitize_user_name(name: str) -> str:
 	"""
 	Convert a user-facing column name into a safe Python attribute name.
 
-	Rules:
+	User Rules:
 	- Keep [A-Za-z0-9_] as-is.
 	- Convert each contiguous run of other characters → single '_'.
 	- Lowercase the result.
-	- Strip leading/trailing underscores (these convey no semantic meaning).
-	- If empty after stripping → 'col'.
-	- If resulting name starts with a digit → prefix '_' (Python requirement).
+	- Strip leading/trailing underscores.
+	- If empty after stripping → None (caller assigns system name).
+	- If resulting name starts with a digit → prefix 'c'.
 	"""
 
 	# Input normalization
@@ -43,16 +43,16 @@ def _sanitize_name(name: str) -> str:
 
 	sanitized = "".join(out).lower()
 
-	# Strip sanitation underscores on ends
+	# Strip leading/trailing underscores
 	sanitized = sanitized.strip("_")
 
-	# Empty fallback
+	# Empty fallback - return None so caller knows to use system name
 	if sanitized == "":
-		sanitized = "col"
+		return None
 
-	# Must not start with a digit
+	# Must not start with a digit - prefix 'c'
 	if sanitized[0].isdigit():
-		sanitized = "_" + sanitized
+		sanitized = "c" + sanitized
 
 	return sanitized
 
@@ -1018,37 +1018,41 @@ class PyTable(PyVector):
 	def __dir__(self):
 		sanitized_names = []
 		seen = set()
-		for i, col in enumerate(self._underlying):
+		for idx, col in enumerate(self._underlying):
 			if col._name is not None:
-				base = _sanitize_name(col._name)
-				unique_name = _uniquify(base, seen)
-				seen.add(unique_name)
-				sanitized_names.append(unique_name)
+				base = _sanitize_user_name(col._name)
+				# If sanitization returns None (empty after stripping), use system name
+				if base is None:
+					sanitized_names.append(f'col{idx}_')
+				else:
+					unique_name = _uniquify(base, seen)
+					seen.add(unique_name)
+					sanitized_names.append(unique_name)
 			else:
-				# Unnamed columns get col_N
-				sanitized_names.append(f'col_{i+1}')
+				# Unnamed columns get system names: col0_, col1_, etc.
+				sanitized_names.append(f'col{idx}_')
 		return dir(PyVector) + sanitized_names
 
 	def __getattr__(self, attr):
 		# Build sanitized name mapping with uniquification
 		attr_lower = attr.lower()
 		seen = set()
-		for col in self._underlying:
+		for idx, col in enumerate(self._underlying):
 			if col._name is not None:
-				base = _sanitize_name(col._name)
-				unique_name = _uniquify(base, seen)
-				seen.add(unique_name)
-				if unique_name == attr_lower:
+				base = _sanitize_user_name(col._name)
+				# If sanitization returns None, match system name
+				if base is None:
+					if f'col{idx}_' == attr_lower:
+						return col
+				else:
+					unique_name = _uniquify(base, seen)
+					seen.add(unique_name)
+					if unique_name == attr_lower:
+						return col
+			else:
+				# Unnamed columns: match col{idx}_ pattern
+				if f'col{idx}_' == attr_lower:
 					return col
-			
-		# Try positional access for col_N pattern
-		if attr.startswith('col_'):
-			try:
-				idx = int(attr[4:]) - 1  # col_1 -> index 0
-				if 0 <= idx < len(self._underlying):
-					return self._underlying[idx]
-			except ValueError:
-				pass
 		
 		return None
 
@@ -1121,18 +1125,22 @@ class PyTable(PyVector):
 			
 			# Try sanitized match (case-insensitive)
 			key_lower = key.lower()
-			for col in self._underlying:
-				if col._name is not None and _sanitize_name(col._name) == key_lower:
-					return col
-			
-			# Try uniquified sanitized names
 			seen = set()
-			for col in self._underlying:
+			for idx, col in enumerate(self._underlying):
 				if col._name is not None:
-					base = _sanitize_name(col._name)
-					unique_name = _uniquify(base, seen)
-					seen.add(unique_name)
-					if unique_name == key_lower:
+					base = _sanitize_user_name(col._name)
+					# If sanitization returns None, match system name
+					if base is None:
+						if f'col{idx}_' == key_lower:
+							return col
+					else:
+						unique_name = _uniquify(base, seen)
+						seen.add(unique_name)
+						if unique_name == key_lower:
+							return col
+				else:
+					# Unnamed columns: match col{idx}_ pattern
+					if f'col{idx}_' == key_lower:
 						return col
 			
 			raise KeyError(f"Column '{key}' not found")
@@ -1153,11 +1161,27 @@ class PyTable(PyVector):
 				# Try sanitized match (case-insensitive)
 				if not found:
 					col_name_lower = col_name.lower()
-					for col in self._underlying:
-						if col._name is not None and _sanitize_name(col._name) == col_name_lower:
-							selected_cols.append(col.copy())
-							found = True
-							break
+					seen = set()
+					for idx, col in enumerate(self._underlying):
+						if col._name is not None:
+							base = _sanitize_user_name(col._name)
+							if base is None:
+								if f'col{idx}_' == col_name_lower:
+									selected_cols.append(col.copy())
+									found = True
+									break
+							else:
+								unique_name = _uniquify(base, seen)
+								seen.add(unique_name)
+								if unique_name == col_name_lower:
+									selected_cols.append(col.copy())
+									found = True
+									break
+						else:
+							if f'col{idx}_' == col_name_lower:
+								selected_cols.append(col.copy())
+								found = True
+								break
 				
 				if not found:
 					raise KeyError(f"Column '{col_name}' not found")

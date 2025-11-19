@@ -58,13 +58,14 @@ t = PyTable({
     "count@time": [4, 5, 6],
 })
 
+# Attributes are sanitized automatically
 t.first_name    # PyVector([1, 2, 3])
 t.price         # PyVector([10, 20, 30])
 t.count_time    # PyVector([4, 5, 6])
 ```
 
-### add a new column
-Use the `>>` operator to stream new columns into the table. New columns should be named explicitly using .rename().
+### Add a new column
+Use the `>>` operator to stream new columns into the table. Explicit naming via `.rename()` is recommended.
 
 ```python
 # Calculate, rename, and append in one step
@@ -80,12 +81,6 @@ t = t >> (t.revenue - t.cost).rename("profit") \
 ```python
 mask = t.price > 15
 filtered = t[mask]
-```
-
-### Add a new column
-
-```python
-t = t >> (t.count_time * t.price)
 ```
 
 ### Matrix multiplication
@@ -166,20 +161,16 @@ PyVector converts arbitrary column names into safe Python attributes. It enforce
 
 ```python
 t = PyTable({
-    "2023-Q1 Revenue ($M)": [1, 2],  # Becomes t.c2023_q1_revenue_m
+    "2023-Q1 Revenue ($M)": [1, 2],  # Becomes t.c2023_q1_revenue_m (digit rule)
     "price_": [3, 4],                # Becomes t.price (trailing _ stripped)
-    "c2025": [5, 6],                 # Becomes t.c2025
+    "email": [5, 6],                 # Becomes t.email
 })
 
-t._2023_q1_revenue_m                 # works
-t.email_primary                      # works
-t.price_unit                         # works
+t.c2023_q1_revenue_m                 # works
+t.price                              # works
 
 # Unnamed vectors rely on system names
 t = t >> PyVector([7, 8])            # Becomes t.col3_
-
-# Case-insensitive access
-t.EMAIL_PRIMARY                      # also works
 ```
 
 For duplicate names:
