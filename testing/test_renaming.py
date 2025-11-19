@@ -1,5 +1,6 @@
 import pytest
-from py_vector import PyVector, PyTable
+from py_vector import PyVector
+from py_table import PyTable
 
 
 def test_pyvector_rename():

@@ -1,6 +1,7 @@
 """Fingerprint change detection tests"""
 import pytest
-from py_vector import PyVector, PyTable
+from py_vector import PyVector
+from py_table import PyTable
 
 
 class TestBasicFingerprint:

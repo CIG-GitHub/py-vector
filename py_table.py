@@ -12,21 +12,36 @@ class PyTable(PyVector):
 	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		# Handle dict initialization {name: values, ...}
 		if isinstance(initial, dict):
+			# Create PyVectors with names from dict keys
 			initial = [PyVector(values, name=col_name) for col_name, values in initial.items()]
 		
 		self._length = len(initial[0]) if initial else 0
 		
 		# Deep copy columns to enforce value semantics
 		# Tables receive snapshots of vectors, preventing aliasing
-		# Preserve names through the copy (name=... means preserve)
-		initial = [vec.copy(name=vec._name) for vec in initial] if initial else ()
+		# Save original names BEFORE copying
+		original_names = [vec._name for vec in initial] if initial else []
 		
-		return super().__init__(
+		# Make copies of the vectors
+		if initial:
+			initial = tuple(vec.copy() for vec in initial)
+		else:
+			initial = ()
+		
+		# Call parent constructor
+		super().__init__(
 			initial,
 			default_element=default_element,
 			dtype=dtype,
 			typesafe=typesafe,
 			name=name)
+		
+		# CRITICAL: Restore column names after parent init
+		# The parent PyVector.__init__ may have modified self._underlying
+		if original_names:
+			for i, col_name in enumerate(original_names):
+				if i < len(self._underlying):
+					self._underlying[i]._name = col_name
 
 	def __len__(self):
 		if not self:
@@ -329,19 +344,95 @@ class PyTable(PyVector):
 			return PyVector([x << y for x, y in zip(self._underlying, other._underlying, strict=True)])
 		return PyVector([x << y for x, y in zip(self._underlying, other, strict=True)])
 
-	def inner_join(self, other, on, expect='many_to_one'):
+	def _validate_join_keys(self, other, left_on, right_on):
 		"""
-		Inner join two PyTables on specified key columns.
-		Only returns rows where keys match in both tables.
+		Validate and normalize join key specification.
 		
 		Args:
+			other: Right table to join with
+			left_on: Column name(s) or PyVector(s) from left table
+			right_on: Column name(s) or PyVector(s) from right table
+		
+		Accepted forms:
+		- Single column:  left_on="id", right_on="customer_id"
+		- Multiple:       left_on=["id","date"], right_on=["cust_id","trans_date"]
+		- PyVector:       left_on=table1.id, right_on=table2.customer_id
+		
+		Returns:
+			List of (left_col, right_col) tuples (PyVector objects)
+		
+		Raises:
+			ValueError: If parameters are invalid or mismatched
+		"""
+		# Helper to get column by name or return PyVector as-is
+		def get_column(table, col_spec, side_name):
+			if isinstance(col_spec, str):
+				try:
+					return table[col_spec]
+				except (KeyError, ValueError):
+					raise ValueError(f"{side_name} table has no column '{col_spec}'")
+			elif isinstance(col_spec, PyVector):
+				return col_spec
+			else:
+				raise ValueError(
+					f"Column specification must be string or PyVector, got {type(col_spec).__name__}"
+				)
+		
+		# Normalize to lists
+		if isinstance(left_on, (str, PyVector)):
+			left_on = [left_on]
+		if isinstance(right_on, (str, PyVector)):
+			right_on = [right_on]
+		
+		if not isinstance(left_on, list) or not isinstance(right_on, list):
+			raise ValueError("left_on and right_on must be strings, PyVectors, or lists")
+		
+		if len(left_on) == 0 or len(right_on) == 0:
+			raise ValueError("Must specify at least 1 join key")
+		
+		if len(left_on) != len(right_on):
+			raise ValueError(
+				f"left_on and right_on must have same length: "
+				f"got {len(left_on)} and {len(right_on)}"
+			)
+		
+		# Build list of (left_col, right_col) tuples
+		normalized = []
+		for i, (left_spec, right_spec) in enumerate(zip(left_on, right_on)):
+			left_col = get_column(self, left_spec, "Left")
+			right_col = get_column(other, right_spec, "Right")
+			
+			# Validate PyVector lengths match their respective tables
+			if len(left_col) != len(self):
+				raise ValueError(
+					f"Left join key at index {i} has length {len(left_col)}, "
+					f"but left table has {len(self)} rows"
+				)
+			if len(right_col) != len(other):
+				raise ValueError(
+					f"Right join key at index {i} has length {len(right_col)}, "
+					f"but right table has {len(other)} rows"
+				)
+			
+			normalized.append((left_col, right_col))
+		
+		return normalized
+
+	def inner_join(self, other, left_on, right_on, expect='many_to_one'):
+		"""
+		Inner join two PyTables on specified key columns.
+		Only returns rows where keys match in both tables.		Args:
 			other: PyTable to join with
-			on: List of tuples [(left_col, right_col), ...] specifying join keys
+			left_on: Column name(s) or PyVector(s) from left table
+			right_on: Column name(s) or PyVector(s) from right table
 			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
 		
 		Returns:
 			PyTable with joined results
 		"""
+		# Validate and normalize join keys
+		on = self._validate_join_keys(other, left_on, right_on)
+		
 		# Extract join key columns from left (self) and right (other)
 		left_keys = [left_col for left_col, _ in on]
 		right_keys = [right_col for _, right_col in on]
@@ -412,19 +503,23 @@ class PyTable(PyVector):
 		
 		return PyTable(result_cols)
 
-	def join(self, other, on, expect='many_to_one'):
+	def join(self, other, left_on, right_on, expect='many_to_one'):
 		"""
 		Left join two PyTables on specified key columns.
 		Returns all rows from left table, with matching rows from right (or None for no match).
 		
 		Args:
 			other: PyTable to join with
-			on: List of tuples [(left_col, right_col), ...] specifying join keys
+			left_on: Column name(s) or PyVector(s) from left table
+			right_on: Column name(s) or PyVector(s) from right table
 			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
 		
 		Returns:
 			PyTable with joined results
 		"""
+		# Validate and normalize join keys
+		on = self._validate_join_keys(other, left_on, right_on)
+		
 		# Extract join key columns from left (self) and right (other)
 		left_keys = [left_col for left_col, _ in on]
 		right_keys = [right_col for _, right_col in on]
@@ -500,19 +595,23 @@ class PyTable(PyVector):
 		
 		return PyTable(result_cols)
 
-	def full_join(self, other, on, expect='many_to_many'):
+	def full_join(self, other, left_on, right_on, expect='many_to_many'):
 		"""
 		Full outer join two PyTables on specified key columns.
 		Returns all rows from both tables, with None where no match exists.
 		
 		Args:
 			other: PyTable to join with
-			on: List of tuples [(left_col, right_col), ...] specifying join keys
+			left_on: Column name(s) or PyVector(s) from left table
+			right_on: Column name(s) or PyVector(s) from right table
 			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
 		
 		Returns:
 			PyTable with joined results
 		"""
+		# Validate and normalize join keys
+		on = self._validate_join_keys(other, left_on, right_on)
+		
 		# Extract join key columns from left (self) and right (other)
 		left_keys = [left_col for left_col, _ in on]
 		right_keys = [right_col for _, right_col in on]

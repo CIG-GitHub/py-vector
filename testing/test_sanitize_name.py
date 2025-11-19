@@ -1,5 +1,6 @@
 import pytest
-from py_vector import _sanitize_user_name, PyVector, PyTable
+from py_vector import _sanitize_user_name, PyVector
+from py_table import PyTable
 
 
 def test_sanitize_simple_name():
