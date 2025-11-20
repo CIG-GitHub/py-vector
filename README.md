@@ -244,6 +244,15 @@ sum(v)    # 30 (None excluded)
 len(v)    # 3 (None counted)
 ```
 
+## Just Write Python
+
+Not every task fits neatly into a vectorized expression.
+When a loop is the clearest approach, PyVector keeps it efficient.
+
+`for row in table:` is fully supported and stays lightweight, so you can use
+whichever style makes the code easiest to understand.
+
+
 ## Design Philosophy
 
 PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
@@ -256,13 +265,10 @@ PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw 
 - O(1) fingerprinting for change detection
 
 **When to use PyVector:**
-- 10K–1M rows (modeling-scale data)
+- Modeling-scale data (10K–1M rows)
 - Correctness and maintainability matter most
-- Jupyter notebook workflows
-
-**When to use alternatives:**
-- 10M+ rows → NumPy/Polars
-- Deep learning → PyTorch/JAX
+- Interactive workflows (Jupyter notebooks, REPL)
+- Projects where zero dependencies is important
 
 ## Further Documentation
 

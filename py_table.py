@@ -7,6 +7,56 @@ def _missing_col_error(name, context="PyTable"):
 	return PyVectorKeyError(f"Column '{name}' not found in {context}")
 
 
+class _RowView:
+	"""Lightweight row view for iterating over table rows with attribute access."""
+	__slots__ = ('_cols', '_column_map', '_index')
+	
+	def __init__(self, table, index):
+		# Cache direct handles to underlying data (bypasses PyVector method dispatch)
+		self._cols = [col._underlying for col in table._underlying]
+		self._column_map = table._column_map
+		self._index = index
+	
+	def set_index(self, index):
+		"""Reuse this row view for a different index (avoids allocation during iteration)."""
+		self._index = index
+		return self
+	
+	def __getattr__(self, attr):
+		"""Access column values by sanitized attribute name."""
+		col_idx = self._column_map.get(attr.lower())
+		if col_idx is None:
+			raise AttributeError(f"Row has no attribute '{attr}'")
+		return self._cols[col_idx][self._index]
+	
+	def __getitem__(self, key):
+		"""Access column values by index or name (optimized for int hot path)."""
+		# Fast path: integer indexing (no isinstance check overhead)
+		try:
+			return self._cols[key][self._index]
+		except TypeError:
+			# Fallback: string indexing
+			if isinstance(key, str):
+				return getattr(self, key)
+			raise TypeError(f"Row indices must be int or str, not {type(key).__name__}")
+	
+	def __iter__(self):
+		"""Iterate over column values in this row."""
+		idx = self._index
+		for col in self._cols:
+			yield col[idx]
+	
+	def __len__(self):
+		"""Return number of columns."""
+		return len(self._cols)
+	
+	def __repr__(self):
+		"""Return a simple representation of the row."""
+		idx = self._index
+		values = [repr(col[idx]) for col in self._cols]
+		return f"Row({idx}: {', '.join(values)})"
+
+
 class PyTable(PyVector):
 	""" Multiple columns of the same length """
 	_length = None
@@ -47,6 +97,9 @@ class PyTable(PyVector):
 			for i, col_name in enumerate(original_names):
 				if i < len(self._underlying):
 					self._underlying[i]._name = col_name
+		
+		# Build column map once for fast row iteration
+		self._column_map = self._build_column_map()
 
 	def __len__(self):
 		if not self:
@@ -58,48 +111,40 @@ class PyTable(PyVector):
 	def size(self):
 		return (len(self),) + self[0].size()
 
-	def __dir__(self):
-		sanitized_names = []
+	def _build_column_map(self):
+		"""Build mapping from sanitized column names to column indices.
+		
+		This is computed once during table initialization and used by
+		_RowView for O(1) attribute lookups during iteration.
+		"""
+		column_map = {}
 		seen = set()
 		for idx, col in enumerate(self._underlying):
 			if col._name is not None:
 				base = _sanitize_user_name(col._name)
-				# If sanitization returns None (empty after stripping), use system name
 				if base is None:
-					sanitized_names.append(f'col{idx}_')
+					# Empty after sanitization, use system name
+					sanitized = f'col{idx}_'
 				else:
-					unique_name = _uniquify(base, seen)
-					seen.add(unique_name)
-					sanitized_names.append(unique_name)
+					sanitized = _uniquify(base, seen)
+					seen.add(sanitized)
 			else:
-				# Unnamed columns get system names: col0_, col1_, etc.
-				sanitized_names.append(f'col{idx}_')
-		return dir(PyVector) + sanitized_names
+				# Unnamed column, use system name
+				sanitized = f'col{idx}_'
+			column_map[sanitized] = idx
+		return column_map
+	
+	def __dir__(self):
+		"""Return list of available attributes including sanitized column names."""
+		return dir(PyVector) + list(self._column_map.keys())
 
 	def __getattr__(self, attr):
-		# Build sanitized name mapping with uniquification
-		attr_lower = attr.lower()
-		seen = set()
-		for idx, col in enumerate(self._underlying):
-			if col._name is not None:
-				base = _sanitize_user_name(col._name)
-				# If sanitization returns None, match system name
-				if base is None:
-					if f'col{idx}_' == attr_lower:
-						return col
-				else:
-					unique_name = _uniquify(base, seen)
-					seen.add(unique_name)
-					if unique_name == attr_lower:
-						return col
-			else:
-				# Unnamed columns: match col{idx}_ pattern
-				if f'col{idx}_' == attr_lower:
-					return col
+		"""Access columns by sanitized attribute name using pre-computed column map."""
+		col_idx = self._column_map.get(attr.lower())
+		if col_idx is not None:
+			return self._underlying[col_idx]
 		
-		# Historically this method returned None when an attribute did not match
-		# any column name. Move to Pythonic behavior: raise AttributeError
-		# so attribute access failures behave like normal Python objects.
+		# Attribute not found - raise AttributeError for Pythonic behavior
 		raise AttributeError(f"{self.__class__.__name__!s} object has no attribute '{attr}'")
 
 	def rename_column(self, old_name, new_name):
@@ -107,6 +152,8 @@ class PyTable(PyVector):
 		for col in self._underlying:
 			if col._name == old_name:
 				col._name = new_name
+				# Rebuild column map to reflect new name
+				self._column_map = self._build_column_map()
 				return self
 		raise _missing_col_error(old_name)
 	
@@ -141,7 +188,9 @@ class PyTable(PyVector):
 				if col._name == old:
 					col._name = new
 					break
-
+		
+		# Rebuild column map to reflect new names
+		self._column_map = self._build_column_map()
 		return self
 
 	@property
@@ -287,10 +336,11 @@ class PyTable(PyVector):
 			)
 
 	def __iter__(self):
-		current = 0
-		while current < len(self):
-			yield self[current]
-			current += 1
+		"""Iterate over rows using a reusable _RowView for memory efficiency."""
+		row_view = _RowView(self, 0)
+		for i in range(len(self)):
+			row_view.set_index(i)
+			yield row_view
 
 	def __repr__(self):
 		from py_vector import _printr
