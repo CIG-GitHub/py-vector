@@ -10,6 +10,18 @@ from datetime import datetime
 from _typeutils import slice_length
 
 
+class MethodProxy:
+	"""Proxy that defers method calls to each element in a PyVector."""
+	def __init__(self, vector, method_name):
+		self._vector = vector
+		self._method_name = method_name
+	
+	def __call__(self, *args, **kwargs):
+		"""Execute the method on each element and return a new PyVector."""
+		return PyVector([getattr(elem, self._method_name)(*args, **kwargs) 
+		                for elem in self._vector._underlying])
+
+
 def _sanitize_user_name(name: str) -> str:
 	"""
 	Convert a user-facing column name into a safe Python attribute name.
@@ -1076,6 +1088,34 @@ class PyVector():
 			None,
 			False)
 
+	def __getattr__(self, name):
+		"""Proxy attribute access to underlying dtype.
+		
+		Distinguishes between properties (like date.year) and methods (like str.replace):
+		- Properties are evaluated immediately and return a PyVector
+		- Methods return a MethodProxy that waits for () to be called
+		"""
+		# 1. If we are untyped (object), don't guess. Explicit > Implicit.
+		if self._dtype is object:
+			raise AttributeError(f"PyVector[object] has no attribute '{name}'")
+		
+		# 2. Inspect the class definition of the type we are holding
+		# getattr(cls, name) returns the actual class member (method, property, slot)
+		cls_attr = getattr(self._dtype, name, None)
+		
+		if cls_attr is None:
+			# If the class doesn't have it, we definitely don't have it
+			raise AttributeError(f"'{self._dtype.__name__}' object has no attribute '{name}'")
+		
+		# 3. Check if it's callable at the class level
+		# If it's callable, it's a method. If not, it's a property/descriptor.
+		if callable(cls_attr):
+			# It's a method -> Return the proxy to wait for ()
+			return MethodProxy(self, name)
+		else:
+			# It's a property/descriptor (like .year) -> Compute immediately
+			return PyVector([getattr(x, name) for x in self._underlying])
+
 class _PyFloat(PyVector):
 	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
 		return super(PyVector, cls).__new__(cls)
@@ -1088,46 +1128,6 @@ class _PyFloat(PyVector):
 			typesafe=typesafe,
 			name=name,
 			as_row=as_row)
-
-	def __getattr__(self, name):
-		""" get float attributes first (numerator, denominator, real, etc.) """
-		if hasattr(float, name):
-			return PyVector(tuple(s.__getattr__(name) for s in self._underlying))
-		return super().__getattr__(name)
-
-	def __setattr__(self, name, value):
-		""" attempt to set float attributes before PyVector attributes
-		this ording is mainly to prevent attribute name collisions with float attributes"""
-		if hasattr(float, name):
-			return PyVector(tuple(s.__setattr__(name, value) for s in self._underlying))
-		return super().__setattr__(name, value)
-
-	def __delattr__(self, name):
-		""" attempt to remove float attributes before PyVector attributes """
-		if hasattr(float, name):
-			return PyVector(tuple(s.__delattr__(name) for s in self._underlying))
-		return super().__delattr__(name)
-
-	def as_integer_ratio(self, *args, **kwargs):
-		""" Call the as_integer_ratio method on float """
-		return PyVector([s.as_integer_ratio() for s in self._underlying])
-
-	def conjugate(self, *args, **kwargs):
-		""" Call the conjugate method on float """
-		return PyVector([s.conjugate() for s in self._underlying])
-
-	def fromhex(self, *args, **kwargs):
-		""" Call the fromhex method on float """
-		return PyVector([s.fromhex() for s in self._underlying])
-
-	def hex(self, *args, **kwargs):
-		""" Call the hex method on float """
-		return PyVector([s.hex() for s in self._underlying])
-
-	def is_integer(self, *args, **kwargs):
-		""" Call the is_integer method on float """
-		return PyVector([s.is_integer() for s in self._underlying])
-
 
 
 class _PyInt(PyVector):
@@ -1142,57 +1142,6 @@ class _PyInt(PyVector):
 			typesafe=typesafe,
 			name=name,
 			as_row=as_row)
-
-	def __getattr__(self, name):
-		""" get integer attributes first (numerator, denominator, real, etc.) """
-		if hasattr(int, name):
-			return PyVector(tuple(s.__getattr__(name) for s in self._underlying))
-		return super().__getattr__(name)
-
-	def __setattr__(self, name, value):
-		""" attempt to set integer attributes before PyVector attributes
-		this ording is mainly to prevent attribute name collisions with integer attributes"""
-		if hasattr(int, name):
-			return PyVector(tuple(s.__setattr__(name, value) for s in self._underlying))
-		return super().__setattr__(name, value)
-
-	def __delattr__(self, name):
-		""" attempt to remove integer attributes before PyVector attributes """
-		if hasattr(int, name):
-			return PyVector(tuple(s.__delattr__(name) for s in self._underlying))
-		return super().__delattr__(name)
-
-	def as_integer_ratio(self, *args, **kwargs):
-		""" Call the as_integer_ratio method on int """
-		return PyVector([s.as_integer_ratio() for s in self._underlying])
-
-	def conjugate(self, *args, **kwargs):
-		""" Call the conjugate method on int """
-		return PyVector([s.conjugate() for s in self._underlying])
-
-	def bit_count(self, *args, **kwargs):
-		""" Call the bit_count method on int """
-		return PyVector([s.bit_count() for s in self._underlying])
-
-	def bit_length(self, *args, **kwargs):
-		""" Call the bit_length method on int """
-		return PyVector([s.bit_length() for s in self._underlying])
-
-	def fromhex(self, *args, **kwargs):
-		""" Call the fromhex method on int """
-		return PyVector([s.fromhex() for s in self._underlying])
-
-	def hex(self, *args, **kwargs):
-		""" Call the hex method on int """
-		return PyVector([s.hex() for s in self._underlying])
-
-	def is_integer(self, *args, **kwargs):
-		""" Call the is_integer method on int """
-		return PyVector([s.is_integer() for s in self._underlying])
-
-	def to_bytes(self, *args, **kwargs):
-		""" Call the to_bytes method on int """
-		return PyVector([s.to_bytes(*args, **kwargs) for s in self._underlying])
 
 
 class _PyString(PyVector):
@@ -1435,10 +1384,6 @@ class _PyDate(PyVector):
 	def ctime(self, *args, **kwargs):
 		return PyVector([s.ctime(*args, **kwargs) for s in self._underlying])
 
-	def day(self):
-		# attributes must be converted to functions to avoid name collisions.
-		return PyVector([s.day for s in self._underlying])
-
 	def fromisocalendar(self, *args, **kwargs):
 		return PyVector([s.fromisocalendar(*args, **kwargs) for s in self._underlying])
 
@@ -1460,23 +1405,8 @@ class _PyDate(PyVector):
 	def isoweekday(self, *args, **kwargs):
 		return PyVector([s.isoweekday(*args, **kwargs) for s in self._underlying])
 
-	def max(self):
-		# attributes must be converted to functions to avoid name collisions.
-		return PyVector([s.max for s in self._underlying])
-
-	def min(self):
-		# attributes must be converted to functions to avoid name collisions.
-		return PyVector([s.min for s in self._underlying])
-
-	def month(self):
-		# attributes must be converted to functions to avoid name collisions.
-		return PyVector([s.month for s in self._underlying])
-
 	def replace(self, *args, **kwargs):
 		return PyVector([s.replace(*args, **kwargs) for s in self._underlying])
-
-	def resolution(self):
-		return PyVector([s.resolution for s in self._underlying])
 
 	def strftime(self, *args, **kwargs):
 		return PyVector([s.strftime(*args, **kwargs) for s in self._underlying])
@@ -1492,9 +1422,6 @@ class _PyDate(PyVector):
 
 	def weekday(self, *args, **kwargs):
 		return PyVector([s.weekday(*args, **kwargs) for s in self._underlying])
-
-	def year(self):
-		return PyVector([s.year for s in self._underlying])
 
 	def __add__(self, other):
 		""" adding integers is adding days """

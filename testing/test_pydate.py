@@ -18,18 +18,18 @@ class TestDateMethods:
     
     def test_year(self):
         v = PyVector([date(2025, 1, 15), date(2024, 12, 31)])
-        result = v.year()
+        result = v.year
         assert isinstance(result, PyVector)
         assert list(result) == [2025, 2024]
     
     def test_month(self):
         v = PyVector([date(2025, 1, 15), date(2025, 12, 31)])
-        result = v.month()
+        result = v.month
         assert list(result) == [1, 12]
     
     def test_day(self):
         v = PyVector([date(2025, 1, 15), date(2025, 1, 31)])
-        result = v.day()
+        result = v.day
         assert list(result) == [15, 31]
     
     def test_weekday(self):

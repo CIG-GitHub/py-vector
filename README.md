@@ -195,9 +195,9 @@ PyVector auto-creates typed subclasses with method proxying:
 ```python
 from datetime import date
 
-dates = PyVector([date(2024, 1, 1), date(2024, 1, 2)])
-dates.year()       # PyVector([2024, 2024])
-dates + 5          # Add 5 days
+dates = PyVector([date(2023, 6, 29), date(2024, 1, 2), date(2024, 12, 28)])
+dates += 5       # Add 5 days to each date
+dates.year       # PyVector([2023, 2024, 2025]) - one crossed the year boundary!
 ```
 
 Works for `int`, `float`, `str`, `date` types.
