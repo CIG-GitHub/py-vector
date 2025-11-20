@@ -174,14 +174,29 @@ def _printr(pv):
 			col_indices = list(range(num_cols_to_show)) + list(range(len(cols) - num_cols_to_show, len(cols)))
 			truncated = True
 		
-		# Get column names and dtypes
+		# Get column names, sanitized names, and dtypes
 		col_names = []
+		sanitized_names = []
 		col_dtypes = []
 		formatted_cols = []
+		seen = set()
 		
 		for idx, col in zip(col_indices, cols_to_display):
-			name = col._name or ''  # Use empty string for unnamed columns
-			col_names.append(name)
+			display_name = col._name or ''  # Original display name
+			col_names.append(display_name)
+			
+			# Get sanitized attribute name
+			if col._name:
+				base = _sanitize_user_name(col._name)
+				if base is None:
+					sanitized = f'col{idx}_'
+				else:
+					sanitized = _uniquify(base, seen)
+					seen.add(sanitized)
+			else:
+				sanitized = f'col{idx}_'
+			sanitized_names.append(sanitized)
+			
 			dtype_name = col._dtype.__name__ if col._dtype else 'object'
 			col_dtypes.append(dtype_name)
 			formatted_cols.append(_format_col(col))
@@ -189,36 +204,75 @@ def _printr(pv):
 		# Insert '...' separator for truncated columns
 		if truncated:
 			col_names.insert(num_cols_to_show, '...')
+			sanitized_names.insert(num_cols_to_show, '...')
 			formatted_cols.insert(num_cols_to_show, PyVector(['...' for _ in range(len(formatted_cols[0]))]))
 		
-		# Check if any columns have names
-		has_any_names = any(name for name in col_names if name != '...')
+		# Determine header display strategy:
+		# 1. If any display names exist, show display names
+		# 2. Show sanitized names in [brackets] below if any differ from display names (including unnamed columns)
+		# 3. If no display names (matrices), show only sanitized names without brackets
+		has_any_display_names = any(name for name in col_names if name and name != '...')
+		has_any_mismatches = any(
+			display != sanitized and sanitized != '...'
+			for display, sanitized in zip(col_names, sanitized_names)
+		)
 		
-		# Adjust column widths to fit headers (if we're showing them)
+		# Adjust column widths to fit all headers
 		aligned_cols = []
-		aligned_names = []
-		for name, col, fmt_col in zip(col_names, cols_to_display if not truncated else cols_to_display[:num_cols_to_show] + cols_to_display[num_cols_to_show:], formatted_cols):
-			if has_any_names:
-				width = max(len(name), max(len(cell) for cell in fmt_col._underlying))
-			else:
-				width = max(len(cell) for cell in fmt_col._underlying)
+		aligned_display_names = []
+		aligned_sanitized_names = []
+		
+		for display_name, sanitized_name, col, fmt_col in zip(
+			col_names, sanitized_names, 
+			cols_to_display if not truncated else cols_to_display[:num_cols_to_show] + cols_to_display[num_cols_to_show:], 
+			formatted_cols
+		):
+			# Calculate required width
+			widths = [len(cell) for cell in fmt_col._underlying]
+			if has_any_display_names:
+				widths.append(len(display_name))
+			if has_any_mismatches and sanitized_name != '...':
+				widths.append(len(f'[{sanitized_name}]'))
+			elif not has_any_display_names and sanitized_name != '...':
+				widths.append(len(sanitized_name))
+			width = max(widths)
 			
 			# Re-align to new width
 			if not truncated and col._dtype in (int, float):
 				aligned_cols.append(fmt_col.rjust(width))
-				if has_any_names:
-					aligned_names.append(name.rjust(width) if name else ' ' * width)
+				if has_any_display_names:
+					aligned_display_names.append(display_name.rjust(width) if display_name else ' ' * width)
+				if has_any_mismatches:
+					if sanitized_name != '...':
+						aligned_sanitized_names.append(f'[{sanitized_name}]'.rjust(width))
+					else:
+						aligned_sanitized_names.append(' ' * width)
+				elif not has_any_display_names:
+					aligned_sanitized_names.append(sanitized_name.rjust(width) if sanitized_name else ' ' * width)
 			else:
 				aligned_cols.append(fmt_col.ljust(width))
-				if has_any_names:
-					aligned_names.append(name.ljust(width))
+				if has_any_display_names:
+					aligned_display_names.append(display_name.ljust(width) if display_name else ' ' * width)
+				if has_any_mismatches:
+					if sanitized_name != '...':
+						aligned_sanitized_names.append(f'[{sanitized_name}]'.ljust(width))
+					else:
+						aligned_sanitized_names.append(' ' * width)
+				elif not has_any_display_names:
+					aligned_sanitized_names.append(sanitized_name.ljust(width) if sanitized_name else ' ' * width)
 		
 		# Build output
 		lines = []
 		
-		# Only add header row if at least one column has a name
-		if has_any_names:
-			lines.append('  '.join(aligned_names))
+		# Add display names row if any exist
+		if has_any_display_names:
+			lines.append('  '.join(aligned_display_names))
+		
+		# Add sanitized names row:
+		# - In [brackets] if display names exist and any differ
+		# - Without brackets if no display names (matrices)
+		if has_any_mismatches or not has_any_display_names:
+			lines.append('  '.join(aligned_sanitized_names))
 		
 		# Zip columns into rows
 		for row_idx in range(len(aligned_cols[0])):
