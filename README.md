@@ -21,10 +21,11 @@ t >>= (t.price * t.quantity).rename("total")
 t >>= (t.total * 0.1).rename("tax")
 
 t
-# price ($)  quantity  total  tax
-#        10         4     40  4.0
-#        20         5    100 10.0
-#        30         6    180 18.0
+# price ($)    quantity    total    tax
+#   [price]  [quantity]  [total]  [tax]
+#        10           4       40    4.0
+#        20           5      100   10.0
+#        30           6      180   18.0
 #
 # 3×4 table <int, int, int, float>
 ```
@@ -82,12 +83,29 @@ t.price         # PyVector([10, 20, 30])
 
 # Add columns with >>= (recommended)
 t >>= (t.first_name * t.price).rename("total")
+
+t
+#   first name  price ($)    total
+# [first_name]    [price]  [total]
+#            1         10       10
+#            2         20       40
+#            3         30       90
+#
+# 3×3 table <int, int, int>
 ```
 
 ### Boolean masking
 
 ```python
 filtered = t[t.price > 15]
+
+filtered
+#   first name  price ($)    total
+# [first_name]    [price]  [total]
+#            2         20       40
+#            3         30       90
+#
+# 2×3 table <int, int, int>
 ```
 
 ### Joins
@@ -97,6 +115,14 @@ customers = PyTable({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
 scores = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
 
 result = customers.inner_join(scores, left_on='id', right_on='id')
+
+result
+#   id  name            id    score
+# [id]  [name]     [id__1]  [score]
+#    2  'Bob'            2       85
+#    3  'Charlie'        3       90
+#
+# 2×4 table <int, str, int, int>
 ```
 
 ### Aggregations
@@ -109,7 +135,13 @@ result = t.aggregate(
     sum_over=t.amount,
     count_over=t.amount
 )
-# Returns 2 rows (one per customer)
+
+result
+# customer  amount_sum  amount_count
+#      'A'         250             2
+#      'B'         200             1
+#
+# 2×3 table <str, int, int>
 ```
 
 **See [docs/joins-aggregations.md](docs/joins-aggregations.md) for detailed examples.**
@@ -119,7 +151,13 @@ result = t.aggregate(
 ### Automatic `__repr__`: Instant Visual Feedback
 
 ```python
+# Dictionary syntax: quick and familiar
 t = PyTable({'id': range(100), 'value': [x**2 for x in range(100)]})
+
+# Or compose from vectors: showcases PyVector's design philosophy
+a = PyVector(range(100), name='id')
+t = a >> (a**2).rename('value')
+
 t
 # id  value
 #  0      0

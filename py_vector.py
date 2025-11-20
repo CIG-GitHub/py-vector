@@ -208,11 +208,14 @@ def _printr(pv):
 			formatted_cols.insert(num_cols_to_show, PyVector(['...' for _ in range(len(formatted_cols[0]))]))
 		
 		# Determine header display strategy:
-		# 1. If any display names exist, show display names
-		# 2. Show sanitized names in [brackets] below if any differ from display names (including unnamed columns)
-		# 3. If no display names (matrices), show only sanitized names without brackets
+		# 1. If NO display names (all unnamed/matrix), show only sanitized names without brackets
+		# 2. If ANY display names exist, show display names on first row
+		# 3. If ANY column differs (display != sanitized), show ALL sanitized names in brackets on second row
 		has_any_display_names = any(name for name in col_names if name and name != '...')
-		has_any_mismatches = any(
+		
+		# Check if we need the bracketed sanitized names row
+		# Only show brackets if we have display names AND any mismatch exists
+		has_any_mismatches = has_any_display_names and any(
 			display != sanitized and sanitized != '...'
 			for display, sanitized in zip(col_names, sanitized_names)
 		)
@@ -972,9 +975,10 @@ class PyVector():
 
 		The rationale here is that even a typed empty list is empty. Even a typed empty list with
 		a default value is empty.
+		
+		Note: We intentionally allow __bool__ on boolean vectors (returns True if non-empty).
+		The warning about using & instead of 'and' is handled elsewhere.
 		"""
-		if self._dtype == bool and self._typesafe:
-			warnings.warn(f"For element-by-element logical operations use (&, |, ~) instead of the 'and', 'or', 'not' keywords.")
 		if self._underlying:
 			return True
 		return False
