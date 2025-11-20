@@ -245,9 +245,16 @@ def _printr(pv):
 			# Calculate required width
 			widths = [len(cell) for cell in fmt_col._underlying]
 			if has_any_display_names:
-				widths.append(len(display_name))
+				# Add quotes only if display name needed sanitization (not just deduplication)
+				# Strip deduplication suffix (__1, __2, etc.) from sanitized_name for comparison
+				base_sanitized = sanitized_name.rsplit('__', 1)[0] if '__' in sanitized_name and sanitized_name.split('__')[-1].isdigit() else sanitized_name
+				if display_name and display_name != '...' and display_name != base_sanitized:
+					quoted_display = f"'{display_name}'"
+				else:
+					quoted_display = display_name if display_name else ''
+				widths.append(len(quoted_display))
 			if has_any_mismatches and sanitized_name != '...':
-				widths.append(len(f'[{sanitized_name}]'))
+				widths.append(len(f'.{sanitized_name}'))
 			elif not has_any_display_names and sanitized_name != '...':
 				widths.append(len(sanitized_name))
 			width = max(widths)
@@ -256,10 +263,16 @@ def _printr(pv):
 			if not truncated and col._dtype in (int, float):
 				aligned_cols.append(fmt_col.rjust(width))
 				if has_any_display_names:
-					aligned_display_names.append(display_name.rjust(width) if display_name else ' ' * width)
+					# Strip deduplication suffix for comparison
+					base_sanitized = sanitized_name.rsplit('__', 1)[0] if '__' in sanitized_name and sanitized_name.split('__')[-1].isdigit() else sanitized_name
+					if display_name and display_name != '...' and display_name != base_sanitized:
+						quoted_display = f"'{display_name}'"
+					else:
+						quoted_display = display_name if display_name else ' ' * width
+					aligned_display_names.append(quoted_display.rjust(width) if quoted_display else ' ' * width)
 				if has_any_mismatches:
 					if sanitized_name != '...':
-						aligned_sanitized_names.append(f'[{sanitized_name}]'.rjust(width))
+						aligned_sanitized_names.append(f'.{sanitized_name}'.rjust(width))
 					else:
 						aligned_sanitized_names.append(' ' * width)
 				elif not has_any_display_names:
@@ -267,10 +280,16 @@ def _printr(pv):
 			else:
 				aligned_cols.append(fmt_col.ljust(width))
 				if has_any_display_names:
-					aligned_display_names.append(display_name.ljust(width) if display_name else ' ' * width)
+					# Strip deduplication suffix for comparison
+					base_sanitized = sanitized_name.rsplit('__', 1)[0] if '__' in sanitized_name and sanitized_name.split('__')[-1].isdigit() else sanitized_name
+					if display_name and display_name != '...' and display_name != base_sanitized:
+						quoted_display = f"'{display_name}'"
+					else:
+						quoted_display = display_name if display_name else ' ' * width
+					aligned_display_names.append(quoted_display.ljust(width) if quoted_display else ' ' * width)
 				if has_any_mismatches:
 					if sanitized_name != '...':
-						aligned_sanitized_names.append(f'[{sanitized_name}]'.ljust(width))
+						aligned_sanitized_names.append(f'.{sanitized_name}'.ljust(width))
 					else:
 						aligned_sanitized_names.append(' ' * width)
 				elif not has_any_display_names:
@@ -284,8 +303,6 @@ def _printr(pv):
 			lines.append('  '.join(aligned_display_names))
 		
 		# Add sanitized names row:
-		# - In [brackets] if display names exist and any differ
-		# - Without brackets if no display names (matrices)
 		if has_any_mismatches or not has_any_display_names:
 			lines.append('  '.join(aligned_sanitized_names))
 		

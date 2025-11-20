@@ -21,11 +21,11 @@ t >>= (t.price * t.quantity).rename("total")
 t >>= (t.total * 0.1).rename("tax")
 
 t
-# price ($)    quantity    total    tax
-#   [price]  [quantity]  [total]  [tax]
-#        10           4       40    4.0
-#        20           5      100   10.0
-#        30           6      180   18.0
+# 'price ($)'  quantity  total  tax
+#      .price  .quantity  .total  .tax
+#          10          4      40   4.0
+#          20          5     100  10.0
+#          30          6     180  18.0
 #
 # 3×4 table <int, int, int, float>
 ```
@@ -85,11 +85,11 @@ t.price         # PyVector([10, 20, 30])
 t >>= (t.first_name * t.price).rename("total")
 
 t
-#   first name  price ($)    total
-# [first_name]    [price]  [total]
-#            1         10       10
-#            2         20       40
-#            3         30       90
+# 'first name'  'price ($)'  total
+#  .first_name       .price  .total
+#            1           10      10
+#            2           20      40
+#            3           30      90
 #
 # 3×3 table <int, int, int>
 ```
@@ -100,10 +100,10 @@ t
 filtered = t[t.price > 15]
 
 filtered
-#   first name  price ($)    total
-# [first_name]    [price]  [total]
-#            2         20       40
-#            3         30       90
+# 'first name'  'price ($)'  total
+#  .first_name       .price  .total
+#            2           20      40
+#            3           30      90
 #
 # 2×3 table <int, int, int>
 ```
@@ -117,10 +117,10 @@ scores = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
 result = customers.inner_join(scores, left_on='id', right_on='id')
 
 result
-#   id  name            id    score
-# [id]  [name]     [id__1]  [score]
-#    2  'Bob'            2       85
-#    3  'Charlie'        3       90
+# id  name        id  score
+# .id  .name  .id__1  .score
+#   2  'Bob'       2      85
+#   3  'Charlie'   3      90
 #
 # 2×4 table <int, str, int, int>
 ```
@@ -179,12 +179,17 @@ Head/tail preview + type annotations + dimensions—no need for `.head()`, `.inf
 
 ### Column Name Sanitization
 
-Non-alphanumeric characters become `_`, leading digits get `c` prefix:
+Column names are sanitized to valid Python identifiers so you can access them with dot notation:
 
 ```python
 t = PyTable({"2023-Q1 Revenue ($M)": [1, 2, 3]})
 t.c2023_q1_revenue_m  # Deterministic, predictable access
 ```
+
+**Rules:**
+- Non-alphanumeric characters become `_`
+- Leading digits get `c` prefix
+- All lowercase
 
 Unnamed columns use system names: `t.col0_`, `t.col1_`, etc.
 
