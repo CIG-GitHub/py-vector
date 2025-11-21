@@ -30,6 +30,37 @@ t
 # 3×4 table <int, int, int, float>
 ```
 
+## Real-World Example: Interactive CSV Exploration
+
+```python
+from py_vector import read_csv
+
+t = read_csv("sales.csv")  # Messy column names? No problem.
+
+# Discover columns interactively (no print needed!)
+#   t. + [TAB]      → shows all sanitized column names
+#   t.pr + [TAB]    → t.price
+#   t.qua + [TAB]   → t.quantity
+
+# Compose expressions naturally
+total = t.price * t.quantity
+
+# Add derived columns
+t >>= total.rename("total")
+
+# Inspect (original names preserved in display!)
+t
+# 'price ($)'  'quantity'   'total'
+#      .price  .quantity    .total
+#          10           4       40
+#          20           5      100
+#          30           6      180
+#
+# 3×3 table <int, int, int>
+```
+
+**The power**: You don't need to know the CSV contents upfront. Tab completion guides you, the repr shows you everything, and messy column names are automatically cleaned for dot-access.
+
 ## Installation
 
 ```bash
