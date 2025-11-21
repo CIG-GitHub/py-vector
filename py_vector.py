@@ -654,6 +654,28 @@ class PyVector():
 	def argsort(self):
 		return [i for i, _ in sorted(enumerate(self._underlying), key=lambda x: x[1])]
 
+	def pluck(self, key, default=None):
+		"""Extract a key/index from each element, returning default if not found.
+		
+		Works with dicts, lists, tuples, strings, or any subscriptable object.
+		"""
+		results = []
+		for item in self._underlying:
+			# If item is None, can't subscript it
+			if item is None:
+				results.append(default)
+				continue
+			
+			try:
+				results.append(item[key])
+			except (KeyError, IndexError, TypeError):
+				# KeyError: dict key missing
+				# IndexError: list/tuple index out of range
+				# TypeError: item not subscriptable
+				results.append(default)
+		
+		return PyVector(results)
+
 
 	def _check_duplicate(self, other):
 		if id(self) == id(other):
@@ -1061,6 +1083,22 @@ class _PyString(PyVector):
 	def zfill(self, *args, **kwargs):
 		""" Call the internal zfill method on string """
 		return PyVector([s.zfill(*args, **kwargs) for s in self._underlying])
+
+	def before(self, sep):
+		"""Return the part of each string before the first occurrence of sep."""
+		return PyVector([s.partition(sep)[0] for s in self._underlying])
+
+	def after(self, sep):
+		"""Return the part of each string after the first occurrence of sep."""
+		return PyVector([s.partition(sep)[2] for s in self._underlying])
+
+	def before_last(self, sep):
+		"""Return the part of each string before the last occurrence of sep."""
+		return PyVector([s.rpartition(sep)[0] for s in self._underlying])
+
+	def after_last(self, sep):
+		"""Return the part of each string after the last occurrence of sep."""
+		return PyVector([s.rpartition(sep)[2] for s in self._underlying])
 
 
 class _PyDate(PyVector):
