@@ -1,7 +1,7 @@
 import warnings
 from .vector import PyVector
 from .naming import _sanitize_user_name, _uniquify
-from .errors import PyVectorKeyError, PyVectorValueError
+from .errors import PyVectorKeyError, PyVectorValueError, PyVectorTypeError
 
 
 def _missing_col_error(name, context="PyTable"):
@@ -62,10 +62,10 @@ class PyTable(PyVector):
 	""" Multiple columns of the same length """
 	_length = None
 	
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+	def __new__(cls, initial=(), dtype=None, name=None, as_row=False):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+	def __init__(self, initial=(), dtype=None, name=None, as_row=False):
 		# Handle dict initialization {name: values, ...}
 		if isinstance(initial, dict):
 			# Create PyVectors with names from dict keys
@@ -85,12 +85,7 @@ class PyTable(PyVector):
 			initial = ()
 		
 		# Call parent constructor
-		super().__init__(
-			initial,
-			default_element=default_element,
-			dtype=dtype,
-			typesafe=typesafe,
-			name=name)
+		super().__init__(initial, dtype=dtype, name=name)
 		
 		# CRITICAL: Restore column names after parent init
 		# The parent PyVector.__init__ may have modified self._underlying
@@ -301,30 +296,22 @@ class PyTable(PyVector):
 			if isinstance(self._underlying[0], PyTable):
 				return self._underlying[key]
 			return PyVector(tuple(col[key] for col in self._underlying),
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
+				dtype = self.dtype
 			).T
 
 		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
 			assert (len(self) == len(key))
 			return PyVector(tuple(x[key] for x in self._underlying),
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
+				dtype = self.dtype
 			)
 		if isinstance(key, list) and {type(e) for e in key} == {bool}:
 			assert (len(self) == len(key))
 			return PyVector(tuple(x[key] for x in self._underlying),
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
+				dtype = self.dtype
 			)
 		if isinstance(key, slice):
 			return PyVector(tuple(x[key] for x in self._underlying), 
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe,
+				dtype = self.dtype,
 				name=self._name
 			)
 
@@ -333,9 +320,7 @@ class PyTable(PyVector):
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors; prefer slices or boolean masks')
 			return PyVector(tuple(x[key] for x in self._underlying),
-				default_element = self._default,
-				dtype = self._dtype,
-				typesafe = self._typesafe
+				dtype = self.dtype
 			)
 
 	def __iter__(self):
@@ -380,22 +365,14 @@ class PyTable(PyVector):
 				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector(self.cols() + other.cols(),
-				self._default, # self does not inherit other's default element
-				self._dtype or other._dtype,
-				self._typesafe or other._typesafe)
+				dtype=self.dtype)
 		if isinstance(other, PyVector):
-			if self._typesafe and other._typesafe and self._dtype != other._dtype:
-				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
-			# complicated typesafety rules here - what if a whole bunch of things.
+			# Adding a column to a table - tables can have mixed-type columns
 			return PyVector(self.cols() + (other,),
-				self._default, # self does not inherit other's default element
-				self._dtype or other._dtype,
-				self._typesafe or other._typesafe)
+				dtype=self.dtype)
 		elif not self:
 			return PyVector((other,),
-				self._default, # self does not inherit other's default element
-				self._dtype,
-				self._typesafe)
+				dtype=self.dtype)
 		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
 
 	def __lshift__(self, other):

@@ -6,6 +6,14 @@ from .alias_tracker import _ALIAS_TRACKER, AliasError
 from .errors import PyVectorTypeError, PyVectorIndexError, PyVectorValueError, PyVectorKeyError
 from .display import _printr
 from .naming import _sanitize_user_name, _uniquify
+from .typing import (
+	DType, 
+	infer_dtype_from_values, 
+	promote_dtypes, 
+	validate_scalar_for_dtype,
+	dtype_from_python_type,
+	PYTHON_TYPE_TO_DTYPE
+)
 from copy import deepcopy
 from datetime import date
 from datetime import datetime
@@ -26,9 +34,7 @@ class MethodProxy:
 
 class PyVector():
 	""" Iterable vector with optional type safety """
-	_dtype = None
-	_typesafe = None
-	_default = None
+	dtype = None  # DType instance
 	_underlying = None
 	_name = None
 	_display_as_row = False
@@ -38,87 +44,97 @@ class PyVector():
 	_FP_B = 1315423911     # Base for rolling hash
 
 
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		""" Decide what type of PyVector this is """
+	def __new__(cls, initial=(), dtype=None, name=None, as_row=False, **kwargs):
+		"""
+		Decide what type of PyVector to create based on contents.
+		
+		Parameters
+		----------
+		initial : iterable
+			Initial values
+		dtype : DType, type, or None
+			Type specification. Can be DType instance or Python type (int, float, str)
+		name : str, optional
+			Name for the vector
+		as_row : bool, default False
+			Display as row instead of column
+		**kwargs : dict
+			Backwards compatibility - accepts but ignores 'typesafe' and 'default_element'
+		"""
+		# Backwards compatibility: ignore old parameters
+		if 'typesafe' in kwargs or 'default_element' in kwargs:
+			pass  # Just ignore them
+		
+		# Handle backwards compatibility: dtype can be Python type or DType
+		if dtype is not None and not isinstance(dtype, DType):
+			# Old API: dtype=int, typesafe=True → new API: dtype=DType("int")
+			dtype = dtype_from_python_type(dtype)
+		
+		# Check if we're creating a PyTable (all elements are vectors of same length)
 		if initial and all(isinstance(x, PyVector) for x in initial):
 			if len({len(x) for x in initial}) == 1:
 				from .table import PyTable
-				return PyTable(initial=initial,
-					default_element=default_element,
-					dtype=dtype,
-					typesafe=typesafe,
-					name=name, 
-					as_row=as_row)
+				return PyTable(initial=initial, dtype=dtype, name=name, as_row=as_row)
 			warnings.warn('Passing vectors of different length will not produce a PyTable.')
-		if initial and all(isinstance(x, str) for x in initial):
-			return _PyString(initial=initial,
-				default_element=default_element,
-				dtype=dtype,
-				typesafe=typesafe,
-				name=name,
-				as_row=as_row)
-		if initial and all(isinstance(x, int) for x in initial) and all(not isinstance(x, bool) for x in initial):
-			return _PyInt(initial=initial,
-				default_element=default_element,
-				dtype=dtype,
-				typesafe=typesafe,
-				name=name,
-				as_row=as_row)
-		if initial and all(isinstance(x, (int, float)) for x in initial) and any(isinstance(x, float) for x in initial) and all(not isinstance(x, bool) for x in initial):
-			# Mixed int/float or all float - promote to float
-			return _PyFloat(initial=initial,
-				default_element=default_element,
-				dtype=dtype,
-				typesafe=typesafe,
-				name=name,
-				as_row=as_row)
-		if initial and all(isinstance(x, date) for x in initial):
-			return _PyDate(initial=initial,
-				default_element=default_element,
-				dtype=dtype,
-				typesafe=typesafe,
-				name=name,
-				as_row=as_row)
+		
+		# Infer dtype if not provided
+		if dtype is None and initial:
+			dtype = infer_dtype_from_values(initial)
+		# Empty vector keeps dtype=None for backwards compatibility
+		
+		# Dispatch to typed subclasses based on inferred dtype
+		if dtype is not None and dtype.kind == "string":
+			return _PyString(initial=initial, dtype=dtype, name=name, as_row=as_row)
+		if dtype is not None and dtype.kind == "int":
+			return _PyInt(initial=initial, dtype=dtype, name=name, as_row=as_row)
+		if dtype is not None and dtype.kind == "float":
+			return _PyFloat(initial=initial, dtype=dtype, name=name, as_row=as_row)
+		if dtype is not None and dtype.kind == "date":
+			return _PyDate(initial=initial, dtype=dtype, name=name, as_row=as_row)
+		
+		# Default: base PyVector
 		return super(PyVector, cls).__new__(cls)
 
 
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		""" Create a new PyVector from an initial list """
-		self._typesafe = typesafe
-		self._dtype = dtype
+	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
+		"""
+		Create a new PyVector from an initial sequence.
+		
+		Parameters
+		----------
+		initial : iterable
+			Initial values
+		dtype : DType, type, or None
+			Type specification
+		name : str, optional
+			Name for the vector
+		as_row : bool, default False
+			Display as row instead of column
+		**kwargs : dict
+			Backwards compatibility - accepts but ignores 'typesafe' and 'default_element'
+		"""
+		# Backwards compatibility: ignore old parameters
+		if 'typesafe' in kwargs or 'default_element' in kwargs:
+			pass  # Just ignore them
+		
+		# Handle backwards compatibility
+		if dtype is not None and not isinstance(dtype, DType):
+			dtype = dtype_from_python_type(dtype)
+		
+		# Infer dtype if not provided
+		if dtype is None and initial:
+			dtype = infer_dtype_from_values(initial)
+		# Keep dtype=None for empty vectors (backwards compatibility)
+		
+		self.dtype = dtype
 		self._name = None
 		if name is not None:
 			self.rename(name)
-		self._default = default_element
 		self._display_as_row = as_row
 
-		if self._typesafe and default_element is not None and not isinstance(default_element, dtype):
-			raise PyVectorTypeError(f"Default element cannot be of type {type(default_element)} for typesafe PyVector(<{dtype}>)")
-
-		promote = False
-		if initial: # Know it's a list with at least one item.
-			try:
-				init_dtypes = {x._dtype for x in initial}
-			except:
-				init_dtypes = {type(x) for x in initial}
-			if dtype:
-				init_dtypes.add(dtype)
-
-			if len(init_dtypes) == 1:
-				self._dtype = init_dtypes.pop()
-			elif init_dtypes == {float, int} and self._dtype is not int:
-				# if we specify int, cannot convert to float. Otherwise, convert ints to float
-				self._dtype = float
-				promote = True
-			else:
-				assert not typesafe
-				self._dtype = None
-
-		if promote:
-			self._underlying = tuple(x + 0.0 if self._dtype == float else x for x in initial)
-		else:
-			self._underlying = tuple(initial)
+		# Convert initial to tuple
+		self._underlying = tuple(initial)
 		
 		# Initialize fingerprint for O(1) change detection
 		self._fp = self._compute_fp(self._underlying)
@@ -206,8 +222,14 @@ class PyVector():
 		""" create a new, initialized vector of length * default_element"""
 		if length:
 			assert isinstance(length, int)
-			return cls([default_element for _ in range(length)], dtype=type(default_element), typesafe=typesafe)
-		return cls(default_element=default_element, dtype=type(default_element), typesafe=typesafe)
+			dtype = infer_dtype_from_values([default_element])
+			if typesafe:
+				dtype = dtype.with_nullable(False)
+			return cls([default_element for _ in range(length)], dtype=dtype)
+		dtype = infer_dtype_from_values([default_element]) if default_element is not None else DType("object")
+		if typesafe:
+			dtype = dtype.with_nullable(False).with_default(default_element)
+		return cls(dtype=dtype)
 
 
 	def copy(self, new_values = None, name=...):
@@ -215,9 +237,7 @@ class PyVector():
 		# Use sentinel value (...) to distinguish between name=None (clear) and not passing name (preserve)
 		use_name = self._name if name is ... else name
 		return PyVector(list(new_values or self._underlying),
-			default_element = self._default,
-			dtype = self._dtype,
-			typesafe = self._typesafe,
+			dtype = self.dtype,
 			name = use_name,
 			as_row = self._display_as_row)
 
@@ -225,6 +245,33 @@ class PyVector():
 		"""Rename this vector (returns self for chaining)"""
 		self._name = new_name
 		return self
+
+	# Backwards compatibility properties
+	@property
+	def _dtype(self):
+		"""Backwards compat: map dtype.kind to Python type"""
+		if self.dtype is None:
+			return None
+		kind_to_type = {
+			"int": int,
+			"float": float,
+			"string": str,
+			"bool": bool,
+			"date": date,
+			"datetime": datetime,
+			"bytes": bytes,
+		}
+		return kind_to_type.get(self.dtype.kind, object)
+	
+	@property
+	def _typesafe(self):
+		"""Backwards compat: non-nullable dtypes are 'typesafe'"""
+		return self.dtype is not None and not self.dtype.nullable
+	
+	@property
+	def _default(self):
+		"""Backwards compat: get default value"""
+		return self.dtype.default if self.dtype else None
 
 	def __repr__(self):
 		return(_printr(self))
@@ -275,6 +322,62 @@ class PyVector():
 					raise ValueError(
 						f"Cast failed at index {i}: '{elem}' cannot be converted to {target_type.__name__}"
 					) from e
+
+	def fillna(self, value):
+		"""
+		Replace None values with a fill value.
+		
+		Parameters
+		----------
+		value : object
+			Value to replace Nones with
+		
+		Returns
+		-------
+		PyVector
+			New vector with Nones replaced
+		
+		Examples
+		--------
+		>>> v = PyVector([1, None, 3])
+		>>> v.fillna(0)
+		PyVector([1, 0, 3])
+		"""
+		return PyVector(tuple(value if elem is None else elem for elem in self._underlying), dtype=self.dtype.with_nullable(False))
+
+	def dropna(self):
+		"""
+		Remove None values from the vector.
+		
+		Returns
+		-------
+		PyVector
+			New vector with Nones removed
+		
+		Examples
+		--------
+		>>> v = PyVector([1, None, 3, None, 5])
+		>>> v.dropna()
+		PyVector([1, 3, 5])
+		"""
+		return PyVector(tuple(elem for elem in self._underlying if elem is not None), dtype=self.dtype.with_nullable(False))
+
+	def isna(self):
+		"""
+		Return boolean mask of None values.
+		
+		Returns
+		-------
+		PyVector
+			Boolean vector, True where value is None
+		
+		Examples
+		--------
+		>>> v = PyVector([1, None, 3])
+		>>> v.isna()
+		PyVector([False, True, False])
+		"""
+		return PyVector(tuple(elem is None for elem in self._underlying), dtype=DType("bool"))
 
 	@property
 	def _(self):
@@ -459,12 +562,12 @@ class PyVector():
 		if isinstance(other, PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), False, bool, True)
+			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), False, bool, True)
-		return PyVector(tuple(bool(op(x, other)) for x in self), False, bool, True)
+			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
+		return PyVector(tuple(bool(op(x, other)) for x in self), dtype=DType("bool"))
 
 	# Now, we can redefine the comparison methods using the helper function
 
@@ -515,40 +618,33 @@ class PyVector():
 			if self._typesafe:
 				other._promote(self._dtype)
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)),
-							default_element=(op_func(self._default, other._default) if self._default is not None and other._default is not None else None),
-							dtype=self._dtype if self._typesafe else None,
-							name=None,
-							typesafe=self._typesafe,
-							as_row=self._display_as_row)
-
-		if isinstance(other, self._dtype or object) or self._check_native_typesafe(other):
-			return PyVector(tuple(op_func(x, other) for x in self._underlying),
-							default_element=(op_func(self._default,  other) if self._default is not None else None),
-							dtype=self._dtype if self._typesafe else None,
-							typesafe=self._typesafe,
+							dtype=self.dtype,
 							name=None,
 							as_row=self._display_as_row)
 
-		if hasattr(other, '__iter__'):
+		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			assert len(self) == len(other)
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
-				self._default,
-				self._dtype,
-				self._typesafe,
-				None,
-				self._display_as_row
+				dtype=self.dtype,
+				name=None,
+				as_row=self._display_as_row
 				)
 
-		raise PyVectorTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		# Scalar operation - let Python handle type compatibility
+		try:
+			return PyVector(tuple(op_func(x, other) for x in self._underlying),
+							dtype=self.dtype,
+							name=None,
+							as_row=self._display_as_row)
+		except TypeError as e:
+			raise PyVectorTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.") from e
 
 	def _unary_operation(self, op_func, op_name: str):
 		"""Helper function to handle unary operations on each element."""
 		return PyVector(
 			tuple(op_func(x) for x in self),
-			default_element=(op_func(self._default) if self._default is not None else None),
-			dtype=self._dtype if self._typesafe else None,
+			dtype=self.dtype,
 			name=self._name,
-			typesafe=self._typesafe,
 			as_row=self._display_as_row
 		)
 
@@ -593,28 +689,22 @@ class PyVector():
 			if self._typesafe:
 				other._promote(self._dtype)
 			return PyVector(tuple(y + x for x, y in zip(self, other, strict=True)),
-							default_element=(other._default + self._default if self._default is not None and other._default is not None else None),
-							dtype=self._dtype if self._typesafe else None,
+							dtype=self.dtype,
 							name=None,
-							typesafe=self._typesafe,
 							as_row=self._display_as_row)
 
 		if isinstance(other, self._dtype or object) or self._check_native_typesafe(other):
 			return PyVector(tuple(other + x for x in self.cols()),
-							default_element=(other + self._default if self._default is not None else None),
-							dtype=self._dtype if self._typesafe else None,
+							dtype=self.dtype,
 							name=None,
-							typesafe=self._typesafe,
 							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__'):
 			assert len(self) == len(other)
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
-				self._default,
-				self._dtype,
-				self._typesafe,
-				None,
-				self._display_as_row)
+				dtype=self.dtype,
+				name=None,
+				as_row=self._display_as_row)
 		return self + other
 
 	def __rmul__(self, other):
@@ -638,16 +728,46 @@ class PyVector():
 
 	def _promote(self, new_dtype):
 		""" Check if a vector can change data type (int -> float, float -> complex) """
-		if self._dtype == new_dtype:
+		# Handle both Python types and DType instances
+		if isinstance(new_dtype, DType):
+			target_kind = new_dtype.kind
+		elif hasattr(new_dtype, '__name__'):
+			# Python type like int, float
+			type_to_kind = {
+				int: "int",
+				float: "float",
+				complex: "complex",
+				str: "string",
+				bool: "bool",
+				date: "date",
+				datetime: "datetime",
+			}
+			target_kind = type_to_kind.get(new_dtype, "object")
+		else:
+			target_kind = str(new_dtype)
+		
+		# Already the target type
+		if self.dtype.kind == target_kind:
 			return
-		if self._typesafe:
-			raise PyVectorTypeError(f'Cannot convert typesafe PyVector from {self._dtype.__name__} to {new_dtype.__name__}.')
-		if new_dtype == float and self._dtype == int:
-			self._underlying = tuple(float(x) for x in self._underlying)
-			self._dtype = float
-		if new_dtype == complex and self._dtype in (int, float):
-			self._underlying = tuple(complex(x) for x in self._underlying)
-			self._dtype = complex
+		
+		# Allow numeric promotions: int -> float, float -> complex
+		if target_kind == "float" and self.dtype.kind == "int":
+			old_tuple_id = id(self._underlying)
+			new_tuple = tuple(float(x) if x is not None else None for x in self._underlying)
+			_ALIAS_TRACKER.unregister(self, old_tuple_id)
+			self._underlying = new_tuple
+			_ALIAS_TRACKER.register(self, id(new_tuple))
+			self.dtype = DType("float", nullable=self.dtype.nullable, default=self.dtype.default)
+		elif target_kind == "complex" and self.dtype.kind in ("int", "float"):
+			old_tuple_id = id(self._underlying)
+			new_tuple = tuple(complex(x) if x is not None else None for x in self._underlying)
+			_ALIAS_TRACKER.unregister(self, old_tuple_id)
+			self._underlying = new_tuple
+			_ALIAS_TRACKER.register(self, id(new_tuple))
+			self.dtype = DType("complex", nullable=self.dtype.nullable, default=self.dtype.default)
+		else:
+			# For backwards compat, raise error if trying invalid promotion
+			raise PyVectorTypeError(f'Cannot convert PyVector from {self.dtype.kind} to {target_kind}.')
 		return
 
 	def ndims(self):
@@ -902,45 +1022,33 @@ class PyVector():
 			return PyVector([getattr(x, name) for x in self._underlying])
 
 class _PyFloat(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+	def __new__(cls, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		return super().__init__(
-			initial,
-			default_element=default_element,
-			dtype=float,
-			typesafe=typesafe,
-			name=name,
-			as_row=as_row)
+	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
+		if dtype is None:
+			dtype = DType("float")
+		return super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 
 class _PyInt(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+	def __new__(cls, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		return super().__init__(
-			initial,
-			default_element=default_element,
-			dtype=int,
-			typesafe=typesafe,
-			name=name,
-			as_row=as_row)
+	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
+		if dtype is None:
+			dtype = DType("int")
+		return super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 
 class _PyString(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
+	def __new__(cls, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		return super().__init__(
-			initial,
-			default_element=default_element,
-			dtype=str,
-			typesafe=typesafe,
-			name=name,
-			as_row=as_row)
+	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
+		if dtype is None:
+			dtype = DType("string")
+		return super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 	def capitalize(self):
 		""" Call the internal capitalize method on string """
@@ -1148,17 +1256,13 @@ class _PyString(PyVector):
 
 
 class _PyDate(PyVector):
-	def __new__(cls, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=None):
+	def __new__(cls, initial=(), dtype=None, name=None, as_row=None, **kwargs):
 		return super(PyVector, cls).__new__(cls)
 
-	def __init__(self, initial=(), default_element=None, dtype=None, typesafe=False, name=None, as_row=False):
-		return super().__init__(
-			initial,
-			default_element=default_element,
-			dtype=date,
-			typesafe=typesafe,
-			name=name,
-			as_row=as_row)
+	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
+		if dtype is None:
+			dtype = DType("date")
+		return super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)
@@ -1166,18 +1270,18 @@ class _PyDate(PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
 			if other._dtype == str:
-				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), False, bool, True)
+				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
 			if other._dtype == datetime:
-				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), False, bool, True)
+				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
 		elif hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
 			# If it's not a PyVector or Constant, don't apply date compare logic
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), False, bool, True)
+			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
 		elif isinstance(other, str):
-			return PyVector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), False, bool, True)
+			return PyVector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), dtype=DType("bool"))
 		elif isinstance(other, datetime):
-			return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), other)) for x in self), False, bool, True)
+			return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), other)) for x in self), dtype=DType("bool"))
 		# finally, 
 		return super()._elementwise_compare(other, op)
 

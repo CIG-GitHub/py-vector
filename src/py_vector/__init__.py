@@ -22,12 +22,14 @@ from .vector import PyVector, _PyFloat, _PyInt, _PyString, _PyDate
 from .table import PyTable
 from .errors import PyVectorError, PyVectorKeyError, PyVectorValueError, PyVectorTypeError, PyVectorIndexError
 from .csv import read_csv
+from .typing import DType
 
 __version__ = "0.1.0"
 __all__ = [
 	"PyVector", 
 	"PyTable",
 	"read_csv",
+	"DType",
 	"AliasError",
 	"PyVectorError",
 	"PyVectorKeyError",
