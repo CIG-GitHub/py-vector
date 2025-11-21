@@ -20,8 +20,8 @@ class MethodProxy:
 	
 	def __call__(self, *args, **kwargs):
 		"""Execute the method on each element and return a new PyVector."""
-		return PyVector([getattr(elem, self._method_name)(*args, **kwargs) 
-		                for elem in self._vector._underlying])
+		return PyVector(tuple(getattr(elem, self._method_name)(*args, **kwargs) 
+		                for elem in self._vector._underlying))
 
 
 class PyVector():
@@ -264,7 +264,7 @@ class PyVector():
 		
 		# Hot path: try conversion on all elements
 		try:
-			return PyVector([target_type(elem) for elem in self._underlying])
+			return PyVector(tuple(target_type(elem) for elem in self._underlying))
 		
 		# Error path: find exact failure point for helpful error message
 		except (ValueError, TypeError) as e:
@@ -796,11 +796,11 @@ class PyVector():
 				self._dtype or other._dtype,
 				self._typesafe or other._typesafe)
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
-			return PyVector(self._underlying + list(other),
+			return PyVector(self._underlying + tuple(other),
 				self._default, # self does not inherit other's default element
 				self._dtype,
 				self._typesafe)
-		return PyVector(self._underlying + [other],
+		return PyVector(self._underlying + (other,),
 				self._default, # self does not inherit other's default element
 				self._dtype,
 				self._typesafe)
