@@ -1,5 +1,6 @@
 import warnings
-from py_vector import PyVector, _sanitize_user_name, _uniquify
+from py_vector import PyVector
+from _naming import _sanitize_user_name, _uniquify
 from _errors import PyVectorKeyError, PyVectorValueError
 
 
@@ -136,7 +137,9 @@ class PyTable(PyVector):
 	
 	def __dir__(self):
 		"""Return list of available attributes including sanitized column names."""
-		return dir(PyVector) + list(self._column_map.keys())
+		# Use object.__dir__ to get instance attributes, then add column names
+		base_attrs = object.__dir__(self)
+		return sorted(set(base_attrs + list(self._column_map.keys())))
 
 	def __getattr__(self, attr):
 		"""Access columns by sanitized attribute name using pre-computed column map."""

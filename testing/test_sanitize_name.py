@@ -56,10 +56,10 @@ def test_sanitize_empty_result():
 
 
 def test_sanitize_unicode():
-	"""Test that unicode characters are handled by isalnum()"""
-	assert _sanitize_user_name("naïve") == "naïve"  # ï is alphanumeric in unicode
-	assert _sanitize_user_name("café") == "café"  # é is alphanumeric in unicode
-	assert _sanitize_user_name("αβγ") == "αβγ"  # Greek letters are alphanumeric
+	"""Test that unicode characters are replaced with underscores"""
+	assert _sanitize_user_name("naïve") == "na_ve"  # ï becomes _
+	assert _sanitize_user_name("café") == "caf"  # é becomes _, trailing _ stripped
+	assert _sanitize_user_name("αβγ") is None  # Greek letters → all _ → empty after strip
 
 
 def test_sanitize_mixed_complexity():
