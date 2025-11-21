@@ -88,9 +88,6 @@ def _uniquify(base: str, existing: set) -> str:
 		counter += 1
 
 
-
-
-
 def _format_col(col, num_rows=5):
 	"""Format a column as a string vector with truncation and alignment."""
 	# Handle truncation
@@ -155,6 +152,20 @@ def format_footer(pv, col_dtypes=None, truncated=False, num_shown=5):
 		dtype_str = pv._dtype.__name__ if pv._dtype else 'object'
 		return f"# {shape} tensor <{dtype_str}>"
 
+def _needs_quoting(name):
+	"""Check if a name needs quoting in display.
+	
+	Quote if:
+	- Leading/trailing whitespace, OR
+	- Contains any character that's not [A-Za-z0-9_]
+	"""
+	if not name:
+		return False
+	return (
+		name != name.strip() or  # Leading/trailing whitespace
+		not all(c.isalnum() or c == '_' for c in name)  # Has non-alphanumeric chars (except _)
+	)
+
 def _printr(pv):
 	"""Clean display-focused repr."""
 	if len(pv.size()) == 1:
@@ -163,7 +174,9 @@ def _printr(pv):
 		lines = []
 		# Add name as first line if present
 		if pv._name:
-			lines.append(pv._name)
+			# Quote the name if it has leading/trailing whitespace or non-alphanumeric chars
+			name = pv._name
+			lines.append(repr(name) if _needs_quoting(name) else name)
 		lines.extend(formatted._underlying)
 		lines.append('')
 		lines.append(format_footer(pv))
@@ -245,10 +258,8 @@ def _printr(pv):
 			# Calculate required width
 			widths = [len(cell) for cell in fmt_col._underlying]
 			if has_any_display_names:
-				# Add quotes only if display name needed sanitization (not just deduplication)
-				# Strip deduplication suffix (__1, __2, etc.) from sanitized_name for comparison
-				base_sanitized = sanitized_name.rsplit('__', 1)[0] if '__' in sanitized_name and sanitized_name.split('__')[-1].isdigit() else sanitized_name
-				if display_name and display_name != '...' and display_name != base_sanitized:
+				# Quote if the display name needs it (whitespace or special chars)
+				if display_name and display_name != '...' and _needs_quoting(display_name):
 					quoted_display = f"'{display_name}'"
 				else:
 					quoted_display = display_name if display_name else ''
@@ -263,9 +274,8 @@ def _printr(pv):
 			if not truncated and col._dtype in (int, float):
 				aligned_cols.append(fmt_col.rjust(width))
 				if has_any_display_names:
-					# Strip deduplication suffix for comparison
-					base_sanitized = sanitized_name.rsplit('__', 1)[0] if '__' in sanitized_name and sanitized_name.split('__')[-1].isdigit() else sanitized_name
-					if display_name and display_name != '...' and display_name != base_sanitized:
+					# Quote if the display name needs it (whitespace or special chars)
+					if display_name and display_name != '...' and _needs_quoting(display_name):
 						quoted_display = f"'{display_name}'"
 					else:
 						quoted_display = display_name if display_name else ' ' * width
@@ -280,9 +290,8 @@ def _printr(pv):
 			else:
 				aligned_cols.append(fmt_col.ljust(width))
 				if has_any_display_names:
-					# Strip deduplication suffix for comparison
-					base_sanitized = sanitized_name.rsplit('__', 1)[0] if '__' in sanitized_name and sanitized_name.split('__')[-1].isdigit() else sanitized_name
-					if display_name and display_name != '...' and display_name != base_sanitized:
+					# Quote if the display name needs it (whitespace or special chars)
+					if display_name and display_name != '...' and _needs_quoting(display_name):
 						quoted_display = f"'{display_name}'"
 					else:
 						quoted_display = display_name if display_name else ' ' * width
