@@ -1,7 +1,7 @@
 """PyTable specific tests - 2D operations, column access, matrix operations"""
 import pytest
 from py_vector import PyVector
-from py_table import PyTable
+from py_vector import PyTable
 
 
 class TestTableCreation:

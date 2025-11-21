@@ -1,7 +1,7 @@
 import pytest
 from py_vector import PyVector
-from py_table import PyTable
-from _errors import PyVectorKeyError, PyVectorValueError
+from py_vector import PyTable
+from py_vector.errors import PyVectorKeyError, PyVectorValueError
 
 
 def test_missing_column_raises_pyvector_keyerror():

@@ -2,14 +2,14 @@ import operator
 import warnings
 import re
 
-from _alias_tracker import _ALIAS_TRACKER, AliasError
-from _errors import PyVectorTypeError, PyVectorIndexError, PyVectorValueError, PyVectorKeyError
-from _display import _printr
-from _naming import _sanitize_user_name, _uniquify
+from .alias_tracker import _ALIAS_TRACKER, AliasError
+from .errors import PyVectorTypeError, PyVectorIndexError, PyVectorValueError, PyVectorKeyError
+from .display import _printr
+from .naming import _sanitize_user_name, _uniquify
 from copy import deepcopy
 from datetime import date
 from datetime import datetime
-from _typeutils import slice_length
+from .typeutils import slice_length
 
 
 class MethodProxy:
@@ -42,8 +42,7 @@ class PyVector():
 		""" Decide what type of PyVector this is """
 		if initial and all(isinstance(x, PyVector) for x in initial):
 			if len({len(x) for x in initial}) == 1:
-				# Lazy import to avoid circular dependency
-				from py_table import PyTable
+				from .table import PyTable
 				return PyTable(initial=initial,
 					default_element=default_element,
 					dtype=dtype,
@@ -229,6 +228,53 @@ class PyVector():
 
 	def __repr__(self):
 		return(_printr(self))
+
+	def cast(self, target_type):
+		"""
+		Convert each element to target_type.
+		
+		Parameters
+		----------
+		target_type : type
+			The type to convert to (e.g., int, float, str)
+		
+		Returns
+		-------
+		PyVector
+			New vector with converted elements
+		
+		Raises
+		------
+		ValueError
+			If any element fails to convert (includes index of failure)
+		
+		Examples
+		--------
+		>>> v = PyVector(['10', '20', '30'])
+		>>> v.cast(float)
+		PyVector([10.0, 20.0, 30.0])
+		"""
+		# The "I hate Python Dates" interceptor
+		if target_type is date:
+			# Swap the constructor for the parser transparently
+			target_type = date.fromisoformat
+		elif target_type is datetime:
+			# Might as well fix this one too while you're at it
+			target_type = datetime.fromisoformat
+		
+		# Hot path: try conversion on all elements
+		try:
+			return PyVector([target_type(elem) for elem in self._underlying])
+		
+		# Error path: find exact failure point for helpful error message
+		except (ValueError, TypeError) as e:
+			for i, elem in enumerate(self._underlying):
+				try:
+					target_type(elem)
+				except Exception:
+					raise ValueError(
+						f"Cast failed at index {i}: '{elem}' cannot be converted to {target_type.__name__}"
+					) from e
 
 	@property
 	def _(self):

@@ -17,11 +17,11 @@ Type-specific subclasses (auto-created):
 Zero external dependencies - pure Python stdlib only.
 """
 
-from _alias_tracker import _ALIAS_TRACKER, AliasError
-from py_vector import PyVector, _PyFloat, _PyInt, _PyString, _PyDate
-from py_table import PyTable
-from _errors import PyVectorError, PyVectorKeyError, PyVectorValueError, PyVectorTypeError, PyVectorIndexError
-from _csv import read_csv
+from .alias_tracker import _ALIAS_TRACKER, AliasError
+from .vector import PyVector, _PyFloat, _PyInt, _PyString, _PyDate
+from .table import PyTable
+from .errors import PyVectorError, PyVectorKeyError, PyVectorValueError, PyVectorTypeError, PyVectorIndexError
+from .csv import read_csv
 
 __version__ = "0.1.0"
 __all__ = [

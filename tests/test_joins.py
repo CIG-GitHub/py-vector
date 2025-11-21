@@ -1,6 +1,6 @@
 import pytest
 from py_vector import PyVector
-from py_table import PyTable
+from py_vector import PyTable
 
 
 def test_inner_join_basic():
@@ -285,7 +285,7 @@ def test_join_key_validation_missing_column():
 	left = PyTable({'id': [1, 2]})
 	right = PyTable({'id': [2, 3]})
     
-	from _errors import PyVectorKeyError
+	from py_vector.errors import PyVectorKeyError
 	with pytest.raises(PyVectorKeyError):
 		left.inner_join(right, left_on='missing_col', right_on='id')
 

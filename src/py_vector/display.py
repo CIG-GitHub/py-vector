@@ -205,7 +205,7 @@ def _repr_vector(v) -> str:
 
 def _repr_table(tbl) -> str:
 	"""Pretty repr for a 2D PyTable."""
-	from _naming import _sanitize_user_name, _uniquify
+	from .naming import _sanitize_user_name, _uniquify
 	
 	cols = tbl.cols()
 	num_cols = len(cols)

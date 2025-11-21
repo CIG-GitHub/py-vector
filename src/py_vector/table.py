@@ -1,7 +1,7 @@
 import warnings
-from py_vector import PyVector
-from _naming import _sanitize_user_name, _uniquify
-from _errors import PyVectorKeyError, PyVectorValueError
+from .vector import PyVector
+from .naming import _sanitize_user_name, _uniquify
+from .errors import PyVectorKeyError, PyVectorValueError
 
 
 def _missing_col_error(name, context="PyTable"):
@@ -346,7 +346,7 @@ class PyTable(PyVector):
 			yield row_view
 
 	def __repr__(self):
-		from py_vector import _printr
+		from .display import _printr
 		return _printr(self)
 
 	def __matmul__(self, other):

@@ -1,5 +1,3 @@
-dev/
-
 # Python cache and artifacts
 __pycache__/
 *.pyc

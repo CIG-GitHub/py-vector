@@ -1,6 +1,6 @@
 import pytest
 from py_vector import PyVector
-from py_table import PyTable
+from py_vector import PyTable
 
 
 def test_name_initialization():

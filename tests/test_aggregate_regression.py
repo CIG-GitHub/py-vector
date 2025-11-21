@@ -1,6 +1,6 @@
 import warnings
 from py_vector import PyVector
-from py_table import PyTable
+from py_vector import PyTable
 
 
 def test_aggregate_over_no_warnings_and_correct_keys():

@@ -31,9 +31,8 @@ def read_csv(file, *, delimiter=',', has_header=True, encoding='utf-8'):
     >>> with open("data.csv") as f:
     ...     t = read_csv(f)
     """
-    # Lazy import to avoid circular dependency
-    from py_table import PyTable
-    from py_vector import PyVector
+    from .table import PyTable
+    from .vector import PyVector
     
     # Handle file path vs file object
     if isinstance(file, str):
@@ -45,8 +44,8 @@ def read_csv(file, *, delimiter=',', has_header=True, encoding='utf-8'):
 
 def _read_csv_from_file(file_obj: TextIO, *, delimiter: str, has_header: bool):
     """Read CSV data from an open file object."""
-    from py_table import PyTable
-    from py_vector import PyVector
+    from .table import PyTable
+    from .vector import PyVector
     
     reader = csv.reader(file_obj, delimiter=delimiter)
     

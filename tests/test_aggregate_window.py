@@ -1,6 +1,6 @@
 import pytest
 import warnings
-from py_table import PyTable
+from py_vector import PyTable
 from py_vector import PyVector
 
 
