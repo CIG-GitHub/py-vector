@@ -1,286 +1,377 @@
 """
-Centralized DType system for PyVector / PyTable.
+DataType system for PyVector / PyTable.
 
-Handles:
-  - supported kinds
-  - nullability
-  - dtype inference
-  - type promotion
-  - mixed-type rules
-  - scalar validation
-
-This module is backend-agnostic and forms the semantic core
-of PyVector's type system.
+Pure metadata design:
+  - DataType describes column semantics (type + nullable flag)
+  - Null masks live on PyVector instances, not in DataType
+  - Promotion is functional (immutable DataType instances)
+  - Backend-agnostic and stable
 """
 
+from __future__ import annotations
+from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any, Iterable, Optional, Type
+import warnings
 
 
-# Supported type kinds
-VALID_KINDS = {
-    "int",
-    "float",
-    "bool",
-    "string",
-    "date",
-    "datetime",
-    "bytes",
-    "list",
-    "dict",
-    "tuple",
-    "object",   # fallback for heterogeneous or unknown values
-}
-
-
-class DType:
+@dataclass(frozen=True)
+class DataType:
     """
-    Represents the semantic type of a PyVector.
+    Describes the semantic type of a PyVector column.
 
     Attributes
     ----------
-    kind : str
-        Base kind: 'int', 'float', 'string', etc.
+    kind : Type
+        Python type (int, float, str, date, etc.)
     nullable : bool
-        Whether the vector contains missing values (None).
-    default : object
-        Default value for this dtype (used for padding/filling)
+        Whether the column may contain None values
 
     Notes
     -----
-    - Nullability is handled at the dtype level, NOT as a separate flag.
-    - DType only handles same-kind promotion; mixed kinds use the
-      global promotion table.
+    - DataType holds zero instance data (no masks, no defaults)
+    - Promotion never mutates — always returns new DataType
+    - This is backend-agnostic and forms the semantic core
     
     Examples
     --------
-    >>> DType("int")
-    <int>
-    >>> DType("int", nullable=True)
-    <int nullable>
-    >>> DType("float", nullable=True, default=0.0)
-    <float nullable default=0.0>
+    >>> DataType(int)
+    DataType(kind=<class 'int'>, nullable=False)
+    >>> DataType(int, nullable=True)
+    DataType(kind=<class 'int'>, nullable=True)
+    >>> DataType(float).promote_with(None)
+    DataType(kind=<class 'float'>, nullable=True)
     """
 
-    __slots__ = ("kind", "nullable", "default")
-
-    def __init__(self, kind: str, nullable: bool = False, default=None):
-        if kind not in VALID_KINDS:
-            raise ValueError(f"Unknown dtype kind: {kind}")
-        self.kind = kind
-        self.nullable = bool(nullable)
-        self.default = default
+    kind: Type[Any]
+    nullable: bool = False
 
     def __repr__(self):
-        parts = [self.kind]
         if self.nullable:
-            parts.append("nullable")
-        if self.default is not None:
-            parts.append(f"default={self.default!r}")
-        return f"<{' '.join(parts)}>"
+            return f"<{self.kind.__name__} nullable>"
+        return f"<{self.kind.__name__}>"
 
-    def __eq__(self, other):
-        if not isinstance(other, DType):
+    @property
+    def is_numeric(self) -> bool:
+        """True if kind is bool, int, float, or complex."""
+        try:
+            return issubclass(self.kind, (int, float, complex, bool))
+        except TypeError:
             return False
-        return (self.kind == other.kind and 
-                self.nullable == other.nullable and
-                self.default == other.default)
 
-    def promote_same_kind(self, other: "DType") -> "DType":
+    @property
+    def is_temporal(self) -> bool:
+        """True if kind is date or datetime."""
+        try:
+            return issubclass(self.kind, (date, datetime))
+        except TypeError:
+            return False
+
+    def promote_with(self, value: Any) -> "DataType":
         """
-        Combine two dtypes with the same base kind.
-        Nullability is OR'ed, default is taken from self.
+        Promote this DataType to accommodate a new Python value.
+        
+        Never mutates; always returns new DataType.
+        
+        Parameters
+        ----------
+        value : Any
+            Python scalar to accommodate
+            
+        Returns
+        -------
+        DataType
+            New (possibly promoted) DataType
         """
-        assert self.kind == other.kind
-        return DType(
-            self.kind, 
-            self.nullable or other.nullable,
-            self.default if self.default is not None else other.default
-        )
+        # Case 1: None just lifts nullability
+        if value is None:
+            if self.nullable:
+                return self
+            return DataType(self.kind, nullable=True)
 
-    def with_nullable(self, nullable=True):
-        """Return a copy with nullable flag set."""
-        return DType(self.kind, nullable, self.default)
+        vtype = type(value)
 
-    def with_default(self, default):
-        """Return a copy with default value set."""
-        return DType(self.kind, self.nullable, default)
+        # Case 2: Exact match
+        if vtype is self.kind:
+            return self
+
+        # Case 3: Numeric ladder (bool → int → float → complex)
+        if self.is_numeric and isinstance(value, (int, float, complex, bool)):
+            if self.kind is complex or vtype is complex:
+                new_kind = complex
+            elif self.kind is float or vtype is float:
+                new_kind = float
+            elif self.kind is int or vtype is int:
+                new_kind = int
+            else:
+                new_kind = bool
+            
+            if new_kind != self.kind:
+                return DataType(new_kind, self.nullable)
+            return self
+
+        # Case 4: Temporal ladder (date → datetime)
+        if self.is_temporal and isinstance(value, (date, datetime)):
+            if self.kind is datetime or vtype is datetime:
+                new_kind = datetime
+            else:
+                new_kind = date
+            
+            if new_kind != self.kind:
+                return DataType(new_kind, self.nullable)
+            return self
+
+        # Case 5: String/bytes stay as-is for same type
+        if self.kind in (str, bytes) and vtype is self.kind:
+            return self
+
+        # Case 6: Degrade to object
+        if self.kind is not object:
+            warnings.warn(
+                f"Degrading column<{self.kind.__name__}> to column<object> "
+                f"due to incompatible value of type {vtype.__name__}",
+                stacklevel=3,
+            )
+            return DataType(object, self.nullable)
+
+        # Already object — trivial
+        return self
 
 
-# Mixed-type promotion rules
-# When kinds differ, consult this registry
-TYPE_PROMOTION_TABLE = {
-    ("int", "int"):       "int",
-    ("int", "float"):     "float",
-    ("float", "int"):     "float",
-    ("float", "float"):   "float",
-
-    ("bool", "int"):      "int",
-    ("int", "bool"):      "int",
-    ("bool", "bool"):     "bool",
-
-    ("string", "string"): "string",
-    ("string", "bytes"):  "object",
-    ("bytes", "string"):  "object",
-
-    # string mixed with numeric → object
-    ("string", "int"):    "object",
-    ("int", "string"):    "object",
-    ("string", "float"):  "object",
-    ("float", "string"):  "object",
-
-    ("bytes", "bytes"):   "bytes",
-
-    # dates only mix with same-kind
-    ("date", "date"):         "date",
-    ("datetime", "datetime"): "datetime",
-    ("date", "datetime"):     "object",
-    ("datetime", "date"):     "object",
+def infer_kind(value: Any) -> Optional[Type]:
+    """
+    Infer Python type for a single scalar.
     
-    # collections
-    ("list", "list"):     "list",
-    ("dict", "dict"):     "dict",
-    ("tuple", "tuple"):   "tuple",
-}
-
-
-def promote_kind(a_kind: str, b_kind: str) -> str:
-    """Promote two kind strings using TYPE_PROMOTION_TABLE."""
-    if a_kind == b_kind:
-        return a_kind
-
-    key = (a_kind, b_kind)
-    if key in TYPE_PROMOTION_TABLE:
-        return TYPE_PROMOTION_TABLE[key]
-
-    # Fallback: anything with object → object
-    if a_kind == "object" or b_kind == "object":
-        return "object"
-
-    # Unknown combination → object (safe fallback)
-    return "object"
-
-
-def promote_dtypes(a: DType, b: DType) -> DType:
+    Returns None for None values.
     """
-    Promote two DType instances to a resulting DType.
-
-    - If kinds match → use same-kind promotion
-    - Otherwise → use global promotion table
-    - Nullability OR's together
-    """
-    if a.kind == b.kind:
-        return a.promote_same_kind(b)
-
-    base = promote_kind(a.kind, b.kind)
-    nullable = a.nullable or b.nullable
-    default = a.default if a.default is not None else b.default
-    return DType(base, nullable, default)
-
-
-def infer_kind_from_value(v):
-    """Infer primitive kind for a single Python value."""
-    if v is None:
+    if value is None:
         return None
+    
+    # Check bool BEFORE int (bool is subclass of int)
+    if isinstance(value, bool):
+        return bool
+    if isinstance(value, int):
+        return int
+    if isinstance(value, float):
+        return float
+    if isinstance(value, complex):
+        return complex
+    if isinstance(value, str):
+        return str
+    if isinstance(value, bytes):
+        return bytes
+    
+    # Check datetime BEFORE date (datetime is subclass of date)
+    if isinstance(value, datetime):
+        return datetime
+    if isinstance(value, date):
+        return date
+    
+    if isinstance(value, list):
+        return list
+    if isinstance(value, dict):
+        return dict
+    if isinstance(value, tuple):
+        return tuple
+    
+    return object
 
-    if isinstance(v, bool):
-        return "bool"
-    if isinstance(v, int):
-        return "int"
-    if isinstance(v, float):
-        return "float"
-    if isinstance(v, str):
-        return "string"
-    if isinstance(v, bytes):
-        return "bytes"
-    if isinstance(v, datetime):
-        return "datetime"
-    if isinstance(v, date):
-        return "date"
-    if isinstance(v, list):
-        return "list"
-    if isinstance(v, dict):
-        return "dict"
-    if isinstance(v, tuple):
-        return "tuple"
 
-    return "object"
-
-
-def infer_dtype_from_values(values):
+def infer_dtype(values: Iterable[Any]) -> DataType:
     """
-    Given an iterable of Python values, infer:
-      - base kind
-      - nullability
+    Infer a DataType from an iterable of Python scalars.
+    
+    Applies promotion across all values.
+    
+    Parameters
+    ----------
+    values : Iterable[Any]
+        Python scalars to analyze
+        
+    Returns
+    -------
+    DataType
+        Inferred dtype
+        
+    Examples
+    --------
+    >>> infer_dtype([1, 2, 3])
+    <int>
+    >>> infer_dtype([1, 2.5, 3])
+    <float>
+    >>> infer_dtype([1, None, 3])
+    <int nullable>
+    >>> infer_dtype([1, "hello"])
+    <object>
     """
-    nullable = False
-    kinds = set()
+    dtype: Optional[DataType] = None
 
     for v in values:
-        k = infer_kind_from_value(v)
-        if k is None:
-            nullable = True
-            continue
-        kinds.add(k)
+        if dtype is None:
+            # First element
+            k = infer_kind(v)
+            if k is None:
+                dtype = DataType(object, nullable=True)
+            else:
+                dtype = DataType(k, nullable=False)
+        else:
+            dtype = dtype.promote_with(v)
 
-    if not kinds:
-        # All values were None → use object+nullable
-        return DType("object", nullable=True)
+    # If all values were None or empty iterable
+    if dtype is None:
+        return DataType(object, nullable=True)
 
-    if len(kinds) == 1:
-        return DType(kinds.pop(), nullable=nullable)
-
-    # Mixed kinds → promote across them
-    kinds_list = list(kinds)
-    current = kinds_list[0]
-    for k in kinds_list[1:]:
-        current = promote_kind(current, k)
-
-    return DType(current, nullable)
+    return dtype
 
 
-def validate_scalar_for_dtype(value, dtype: DType):
+def validate_scalar(value: Any, dtype: DataType) -> Any:
     """
-    Validate / coerce a Python scalar before inserting into a vector.
-    Raises if incompatible.
+    Validate (and possibly coerce) a scalar before writing into a vector.
+    
+    Parameters
+    ----------
+    value : Any
+        Scalar to validate
+    dtype : DataType
+        Target dtype
+        
+    Returns
+    -------
+    Any
+        Validated/coerced scalar
+        
+    Raises
+    ------
+    TypeError
+        If value is incompatible with dtype
     """
     if value is None:
         if not dtype.nullable:
-            raise TypeError(f"Cannot insert None into non-nullable dtype {dtype}")
+            raise TypeError(
+                f"Cannot store None in non-nullable {dtype.kind.__name__} column"
+            )
         return None
 
-    kind = infer_kind_from_value(value)
+    vtype = type(value)
 
-    if kind == dtype.kind:
+    # Exact match
+    if vtype is dtype.kind:
         return value
 
     # Numeric coercions
-    if dtype.kind == "float" and kind == "int":
+    if dtype.kind is float and vtype in (int, bool):
         return float(value)
-    if dtype.kind == "int" and kind == "bool":
+    if dtype.kind is int and vtype is bool:
         return int(value)
+    if dtype.kind is complex and vtype in (int, float, bool):
+        return complex(value)
 
-    # Everything else falls back to user error
-    raise TypeError(f"Cannot insert value {value!r} into dtype {dtype}")
+    # Temporal promotion
+    if dtype.kind is datetime and vtype is date:
+        return datetime.combine(value, datetime.min.time())
+
+    # Otherwise incompatible
+    raise TypeError(
+        f"Incompatible value {value!r} for column<{dtype.kind.__name__}>"
+    )
 
 
-# Convenience: Python type → DType mapping
-PYTHON_TYPE_TO_DTYPE = {
-    int: DType("int"),
-    float: DType("float"),
-    str: DType("string"),
-    bool: DType("bool"),
-    bytes: DType("bytes"),
-    date: DType("date"),
-    datetime: DType("datetime"),
-    list: DType("list"),
-    dict: DType("dict"),
-    tuple: DType("tuple"),
-}
+# ============================================================
+# BACKWARDS COMPATIBILITY WITH OLD DType STRING-BASED SYSTEM
+# ============================================================
+
+# Legacy DType constructor for migration
+def DType(kind_str: str, nullable: bool = False, default=None) -> DataType:
+    """
+    Legacy constructor for old DType("int") calls.
+    
+    Deprecated: Use DataType(int) instead.
+    """
+    mapping = {
+        "int": int,
+        "float": float,
+        "bool": bool,
+        "string": str,
+        "bytes": bytes,
+        "date": date,
+        "datetime": datetime,
+        "list": list,
+        "dict": dict,
+        "tuple": tuple,
+        "object": object,
+        "complex": complex,
+    }
+    return DataType(mapping.get(kind_str, object), nullable)
+
+
+# Legacy function names for compatibility
+def infer_kind_from_value(v):
+    """Legacy name. Use infer_kind() instead."""
+    k = infer_kind(v)
+    if k is None:
+        return None
+    # Map back to string for old code
+    mapping = {
+        int: "int", float: "float", bool: "bool",
+        str: "string", bytes: "bytes",
+        date: "date", datetime: "datetime",
+        list: "list", dict: "dict", tuple: "tuple",
+        complex: "complex",
+    }
+    return mapping.get(k, "object")
+
+
+def infer_dtype_from_values(values):
+    """Legacy name. Use infer_dtype() instead."""
+    return infer_dtype(values)
+
+
+def validate_scalar_for_dtype(value, dtype):
+    """Legacy name. Use validate_scalar() instead."""
+    return validate_scalar(value, dtype)
 
 
 def dtype_from_python_type(py_type, nullable=False, default=None):
-    """Convert Python type to DType (for backwards compatibility)."""
-    if py_type in PYTHON_TYPE_TO_DTYPE:
-        base = PYTHON_TYPE_TO_DTYPE[py_type]
-        return DType(base.kind, nullable=nullable, default=default)
-    return DType("object", nullable=nullable, default=default)
+    """Convert Python type to DataType."""
+    return DataType(py_type, nullable)
+
+
+def promote_dtypes(a: DataType, b: DataType) -> DataType:
+    """
+    Legacy function for promoting two DataType instances.
+    
+    Use a.promote_with(value) instead for cleaner semantics.
+    """
+    # Promote b's kind into a
+    if a.kind == b.kind:
+        return DataType(a.kind, a.nullable or b.nullable)
+    
+    # Use promote_with logic by creating a dummy value
+    # This is hacky but maintains backwards compat
+    dummy_map = {
+        int: 0, float: 0.0, bool: False, str: "", bytes: b"",
+        date: date.today(), datetime: datetime.now(),
+        list: [], dict: {}, tuple: (), object: object(),
+        complex: 0j,
+    }
+    
+    dummy = dummy_map.get(b.kind, object())
+    result = a.promote_with(dummy)
+    
+    # OR the nullable flags
+    return DataType(result.kind, a.nullable or b.nullable)
+
+
+# Legacy Python type → DType mapping (for old code that checks this)
+PYTHON_TYPE_TO_DTYPE = {
+    int: DataType(int),
+    float: DataType(float),
+    str: DataType(str),
+    bool: DataType(bool),
+    bytes: DataType(bytes),
+    date: DataType(date),
+    datetime: DataType(datetime),
+    list: DataType(list),
+    dict: DataType(dict),
+    tuple: DataType(tuple),
+}
