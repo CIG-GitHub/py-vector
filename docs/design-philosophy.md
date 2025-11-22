@@ -18,8 +18,7 @@ Every additional method or behavior must *earn its place* by providing clear val
 - Avoid implicit magic or hidden transformations.
 - If a feature can be built from existing pieces, it probably should be.
 
-PyVector is intentionally **not Pandas** or **Polars**.  
-Its strength comes from being small, predictable, and easy to reason about.
+PyVector's strength comes from being small, predictable, and easy to reason about.
 
 ---
 

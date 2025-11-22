@@ -7,13 +7,9 @@ from .errors import PyVectorTypeError, PyVectorIndexError, PyVectorValueError, P
 from .display import _printr
 from .naming import _sanitize_user_name, _uniquify
 from .typing import (
-	DType,  # Legacy function
-	DataType,  # New class
-	infer_dtype_from_values, 
-	promote_dtypes, 
-	validate_scalar_for_dtype,
-	dtype_from_python_type,
-	PYTHON_TYPE_TO_DTYPE
+	DataType,
+	infer_dtype,
+	validate_scalar,
 )
 from copy import deepcopy
 from datetime import date
@@ -69,7 +65,7 @@ class PyVector():
 		# Handle backwards compatibility: dtype can be Python type or DataType
 		if dtype is not None and not isinstance(dtype, DataType):
 			# Old API: dtype=int, typesafe=True → new API: dtype=DataType(int)
-			dtype = dtype_from_python_type(dtype)
+			dtype = DataType(dtype)
 		
 		# Check if we're creating a PyTable (all elements are vectors of same length)
 		if initial and all(isinstance(x, PyVector) for x in initial):
@@ -80,7 +76,7 @@ class PyVector():
 		
 		# Infer dtype if not provided
 		if dtype is None and initial:
-			dtype = infer_dtype_from_values(initial)
+			dtype = infer_dtype(initial)
 		# Empty vector keeps dtype=None for backwards compatibility
 		
 		# Dispatch to typed subclasses based on inferred dtype
@@ -121,11 +117,11 @@ class PyVector():
 		
 		# Handle backwards compatibility
 		if dtype is not None and not isinstance(dtype, DataType):
-			dtype = dtype_from_python_type(dtype)
+			dtype = DataType(dtype)
 		
 		# Infer dtype if not provided
 		if dtype is None and initial:
-			dtype = infer_dtype_from_values(initial)
+			dtype = infer_dtype(initial)
 		# Keep dtype=None for empty vectors (backwards compatibility)
 		
 		self.dtype = dtype
@@ -223,11 +219,11 @@ class PyVector():
 		""" create a new, initialized vector of length * default_element"""
 		if length:
 			assert isinstance(length, int)
-			dtype = infer_dtype_from_values([default_element])
+			dtype = infer_dtype([default_element])
 			if typesafe:
 				dtype = dtype.with_nullable(False)
 			return cls([default_element for _ in range(length)], dtype=dtype)
-		dtype = infer_dtype_from_values([default_element]) if default_element is not None else DType("object")
+		dtype = infer_dtype([default_element]) if default_element is not None else DataType(object)
 		if typesafe:
 			dtype = dtype.with_nullable(False).with_default(default_element)
 		return cls(dtype=dtype)
@@ -370,7 +366,7 @@ class PyVector():
 		>>> v.isna()
 		PyVector([False, True, False])
 		"""
-		return PyVector(tuple(elem is None for elem in self._underlying), dtype=DType("bool"))
+		return PyVector(tuple(elem is None for elem in self._underlying), dtype=DataType(bool))
 
 	@property
 	def _(self):
@@ -555,12 +551,12 @@ class PyVector():
 		if isinstance(other, PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
+			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
-		return PyVector(tuple(bool(op(x, other)) for x in self), dtype=DType("bool"))
+			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+		return PyVector(tuple(bool(op(x, other)) for x in self), dtype=DataType(bool))
 
 	# Now, we can redefine the comparison methods using the helper function
 
@@ -786,23 +782,29 @@ class PyVector():
 	def sum(self):
 		if self.ndims() == 2:
 			return self.copy((c.sum() for c in self.cols()), name=None).T
-		return sum(self)
+		# Exclude None values from sum
+		return sum(v for v in self._underlying if v is not None)
 
 
 	def mean(self):
 		if self.ndims() == 2:
 			return self.copy((c.mean() for c in self.cols()), name=None).T
-		return sum(self._underlying) / len(self._underlying)
+		# Exclude None values from mean
+		non_none = [v for v in self._underlying if v is not None]
+		return sum(non_none) / len(non_none) if non_none else None
 
 	def stdev(self, population=False):
 		if self.ndims() == 2:
 			return self.copy((c.stdev(population) for c in self.cols()), name=None).T
-		m = self.mean()
-
+		# Exclude None values from stdev
+		non_none = [v for v in self._underlying if v is not None]
+		if len(non_none) < 2:
+			return None
+		m = sum(non_none) / len(non_none)
 		# use in-place sum over generator for fastness. I AM SPEED!
 		# This is still 10x slower than numpy.
-		num = sum((x-m)*(x-m) for x in self._underlying)
-		return (num/(len(self) - 1 + population))**0.5
+		num = sum((x-m)*(x-m) for x in non_none)
+		return (num/(len(non_none) - 1 + population))**0.5
 
 	def unique(self):
 		return {x for x in self}
@@ -1247,18 +1249,18 @@ class _PyDate(PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
 			if other._dtype == str:
-				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
+				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 			if other._dtype == datetime:
-				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
+				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 		elif hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
 			# If it's not a PyVector or Constant, don't apply date compare logic
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DType("bool"))
+			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 		elif isinstance(other, str):
-			return PyVector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), dtype=DType("bool"))
+			return PyVector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), dtype=DataType(bool))
 		elif isinstance(other, datetime):
-			return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), other)) for x in self), dtype=DType("bool"))
+			return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), other)) for x in self), dtype=DataType(bool))
 		# finally, 
 		return super()._elementwise_compare(other, op)
 

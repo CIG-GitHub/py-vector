@@ -22,7 +22,7 @@ from .vector import PyVector, _PyFloat, _PyInt, _PyString, _PyDate
 from .table import PyTable
 from .errors import PyVectorError, PyVectorKeyError, PyVectorValueError, PyVectorTypeError, PyVectorIndexError
 from .csv import read_csv
-from .typing import DType
+from .typing import DataType
 
 __version__ = "0.1.0"
 __all__ = [
