@@ -50,6 +50,27 @@ class DataType:
         if self.nullable:
             return f"<{self.kind.__name__}?>"
         return f"<{self.kind.__name__}>"
+    
+    def with_nullable(self, nullable: bool) -> DataType:
+        """Return a new DataType with the specified nullable flag.
+        
+        Parameters
+        ----------
+        nullable : bool
+            Whether the new type should be nullable
+        
+        Returns
+        -------
+        DataType
+            New DataType instance with updated nullable flag
+        
+        Examples
+        --------
+        >>> dt = DataType(int, nullable=True)
+        >>> dt.with_nullable(False)
+        DataType(kind=<class 'int'>, nullable=False)
+        """
+        return DataType(self.kind, nullable=nullable)
 
     @property
     def is_numeric(self) -> bool:

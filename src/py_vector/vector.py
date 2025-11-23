@@ -423,105 +423,123 @@ class PyVector():
 
 	def __setitem__(self, key, value):
 		"""
-		Set the item at the specified index (key) with the provided value.
-		Mutates self in place with alias tracking.
-		Supports boolean indexing, slicing, and standard indexing.
+		Set items in-place with correct alias tracking, dtype promotion,
+		and support for boolean masks, slices, integer indices, and index vectors.
 		"""
-		# Check for aliasing before any mutation
 		_ALIAS_TRACKER.check_writable(self, id(self._underlying))
-		
+
 		key = self._check_duplicate(key)
 		value = self._check_duplicate(value)
-		
-		# Collect updates as (index, new_value) pairs
-		updates = []
-		
-		# Handle boolean vector or list as key
-		if (isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable) \
-			or (isinstance(key, list) and {type(e) for e in key} == {bool}):
-			
-			assert len(self) == len(key), "Boolean mask length must match vector length."
 
-			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
-				assert sum(key) == len(value), "Iterable length must match the number of True elements in the mask."
-				iter_v = iter(value)
-				for idx, mask_value in enumerate(key):
-					if mask_value:
-						updates.append((idx, next(iter_v)))
+		updates = []   # list of (idx, new_value)
+
+		# CASE 1 — Boolean mask
+		if (isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable) \
+		or (isinstance(key, list) and {type(e) for e in key} == {bool}):
+
+			if len(key) != len(self):
+				raise PyVectorValueError("Boolean mask length must match vector length.")
+
+			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
+				if sum(key) != len(value):
+					raise PyVectorValueError("Iterable length must match number of True mask elements.")
+				it = iter(value)
+				for idx, flag in enumerate(key):
+					if flag:
+						updates.append((idx, next(it)))
 			else:
-				for idx, mask_value in enumerate(key):
-					if mask_value:
+				for idx, flag in enumerate(key):
+					if flag:
 						updates.append((idx, value))
-		
-		# Handle slice assignment
+
+		# CASE 2 — Slice
 		elif isinstance(key, slice):
 			slice_len = slice_length(key, len(self))
-			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
+
+			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
 				if slice_len != len(value):
-					raise PyVectorValueError("Slice length and value length must be the same.")
+					raise PyVectorValueError("Slice length and value length must match.")
 				values_to_assign = value
 			else:
-				values_to_assign = [value for _ in range(slice_len)]
+				values_to_assign = [value] * slice_len
 
 			start, stop, step = key.indices(len(self))
-			indices = range(start, stop, step)
-			
-			for idx, new_val in zip(indices, values_to_assign):
-				updates.append((idx, new_val))
-		
-		# Single integer index assignment
+			for idx, val in zip(range(start, stop, step), values_to_assign):
+				updates.append((idx, val))
+
+		# CASE 3 — Single integer index
 		elif isinstance(key, int):
 			if not (-len(self) <= key < len(self)):
-				raise PyVectorIndexError(f"Index {key} is out of range for PyVector of length {len(self)}")
+				raise PyVectorIndexError(f"Index {key} out of range for vector length {len(self)}")
 			updates.append((key, value))
-		
-		# Subscript indexing with PyVector of integers
+
+		# CASE 4 — PyVector of integer indices
 		elif isinstance(key, PyVector) and key.schema().kind == int and not key.schema().nullable:
-			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
+			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
 				if len(key) != len(value):
-					raise PyVectorValueError("Number of indices must match the length of values.")
+					raise PyVectorValueError("Index-vector length must match value length.")
 				for idx, val in zip(key, value):
 					updates.append((idx, val))
 			else:
 				for idx in key:
 					updates.append((idx, value))
-		
-		# List or tuple of integers
+
+		# CASE 5 — List or tuple of integer indices
 		elif isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
-			if hasattr(value, '__iter__') and not isinstance(value, (str, bytes, bytearray)):
+			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
 				if len(key) != len(value):
-					raise PyVectorValueError("Number of indices must match the length of values.")
+					raise PyVectorValueError("Index list must match value length.")
 				for idx, val in zip(key, value):
 					updates.append((idx, val))
 			else:
 				for idx in key:
 					updates.append((idx, value))
+
 		else:
-			raise PyVectorTypeError(f"Invalid key type: {type(key)}. Must be boolean vector, integer vector, slice, or single index.")
-		
-		# Copy-on-write: convert to list, apply mutations, convert back to tuple
+			raise PyVectorTypeError(
+				f"Invalid key type: {type(key)}. Must be boolean mask, slice, int, "
+				"integer vector, or list/tuple of ints."
+			)
+
+		# FAST-PATH TYPE CHECK / PROMOTION
+		new_values = [v for _, v in updates]
+
+		incompatible_value = None
+		if self._dtype is not None and new_values:
+			for val in new_values:
+				try:
+					validate_scalar(val, self._dtype)
+				except TypeError:
+					incompatible_value = val
+					break
+
+		if incompatible_value is not None:
+			required_dtype = infer_dtype([incompatible_value])
+			try:
+				self._promote(required_dtype.kind)
+			except PyVectorTypeError:
+				raise PyVectorTypeError(
+					f"Cannot set {required_dtype.kind.__name__} in "
+					f"{self._dtype.kind.__name__} vector. "
+					f"Promotion not supported."
+				)
+
+		# MUTATE — copy-on-write
 		data = list(self._underlying)
-		
-		# Apply mutations and track for fingerprint
 		fp_updates = []
+
 		for idx, new_val in updates:
 			old_val = data[idx]
 			data[idx] = new_val
 			fp_updates.append((idx, old_val, new_val))
-		
-		# Convert back to tuple
-		new_tuple = tuple(data)
-		
-		# Unregister old tuple identity before registering new one
-		old_tuple_id = id(self._underlying)
 
-		# Update and re-register with alias tracker
-		_ALIAS_TRACKER.unregister(self, old_tuple_id)
+		new_tuple = tuple(data)
+		old_id = id(self._underlying)
+		
+		_ALIAS_TRACKER.unregister(self, old_id)
 		self._underlying = new_tuple
 		_ALIAS_TRACKER.register(self, id(new_tuple))
 
-		
-		# Update fingerprint
 		self._fp_update_multi(fp_updates)
 
 
@@ -538,15 +556,17 @@ class PyVector():
 		if isinstance(other, PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
+			return PyVector(result_values, dtype=DataType(bool, nullable=False))
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
-		return PyVector(tuple(bool(op(x, other)) for x in self), dtype=DataType(bool))
-
-	# Now, we can redefine the comparison methods using the helper function
-
+			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
+			return PyVector(result_values, dtype=DataType(bool, nullable=False))
+		# Scalar comparison
+		result_values = tuple(False if x is None else bool(op(x, other)) for x in self)
+		return PyVector(result_values, dtype=DataType(bool, nullable=False))	# Now, we can redefine the comparison methods using the helper function
+	
 	def __eq__(self, other):
 		return self._elementwise_compare(other, operator.eq)
 
@@ -585,30 +605,39 @@ class PyVector():
 
 
 	""" Math operations """
-
 	def _elementwise_operation(self, other, op_func, op_name: str, op_symbol: str):
 		"""Helper function to handle element-wise operations with broadcasting."""
 		other = self._check_duplicate(other)
 		if isinstance(other, PyVector):
 			assert len(self) == len(other)
-			if not self._dtype.nullable:
-				other._promote(self._dtype.kind)
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)),
-							dtype=self._dtype,
+			try:
+				result_values = tuple(None if (x is None or y is None) else op_func(x, y) for x, y in zip(self, other, strict=True))
+			except TypeError:
+				# Incompatible types - fall back to object dtype with raw tuples
+				result_values = tuple((x, y) for x, y in zip(self, other, strict=True))
+				return PyVector(result_values, dtype=DataType(object), name=None, as_row=self._display_as_row)
+			result_dtype = infer_dtype(result_values)
+			return PyVector(result_values,
+							dtype=result_dtype,
 							name=None,
 							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			assert len(self) == len(other)
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
-				dtype=self._dtype,
+			try:
+				result_values = tuple(None if (x is None or y is None) else op_func(x, y) for x, y in zip(self, other, strict=True))
+			except TypeError:
+				# Incompatible types - fall back to object dtype with raw tuples
+				result_values = tuple((x, y) for x, y in zip(self, other, strict=True))
+				return PyVector(result_values, dtype=DataType(object), name=None, as_row=self._display_as_row)
+			result_dtype = infer_dtype(result_values)
+			return PyVector(result_values,
+				dtype=result_dtype,
 				name=None,
 				as_row=self._display_as_row
-				)
-
-		# Scalar operation - let Python handle type compatibility
+				)	# Scalar operation - let Python handle type compatibility
 		try:
-			result_values = tuple(op_func(x, other) for x in self._underlying)
+			result_values = tuple(None if x is None else op_func(x, other) for x in self._underlying)
 			# Infer dtype from result (e.g., int * 0.1 = float)
 			result_dtype = infer_dtype(result_values)
 			return PyVector(result_values,
@@ -616,7 +645,7 @@ class PyVector():
 							name=None,
 							as_row=self._display_as_row)
 		except TypeError as e:
-			raise PyVectorTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.__name__}' and '{type(other).__name__}'.") from e
+			raise PyVectorTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.kind.__name__}' and '{type(other).__name__}'.")
 
 	def _unary_operation(self, op_func, op_name: str):
 		"""Helper function to handle unary operations on each element."""
@@ -626,7 +655,7 @@ class PyVector():
 			name=self._name,
 			as_row=self._display_as_row
 		)
-
+	
 	def __add__(self, other):
 		return self._elementwise_operation(other, operator.add, '__add__', '+')
 
@@ -721,7 +750,7 @@ class PyVector():
 				"date": date, "datetime": datetime,
 			}
 			target_kind = type_map.get(new_dtype, object)
-		
+			
 		# Already the target type
 		if self._dtype.kind is target_kind:
 			return
@@ -741,6 +770,13 @@ class PyVector():
 			self._underlying = new_tuple
 			_ALIAS_TRACKER.register(self, id(new_tuple))
 			self._dtype = DataType(complex, nullable=self._dtype.nullable)
+		elif target_kind is datetime and self._dtype.kind is date:
+			old_tuple_id = id(self._underlying)
+			new_tuple = tuple(datetime.combine(x, datetime.min.time()) if x is not None else None for x in self._underlying)
+			_ALIAS_TRACKER.unregister(self, old_tuple_id)
+			self._underlying = new_tuple
+			_ALIAS_TRACKER.register(self, id(new_tuple))
+			self._dtype = DataType(datetime, nullable=self._dtype.nullable)
 		else:
 			# For backwards compat, raise error if trying invalid promotion
 			raise PyVectorTypeError(f'Cannot convert PyVector from {self._dtype.kind.__name__} to {target_kind.__name__}.')
