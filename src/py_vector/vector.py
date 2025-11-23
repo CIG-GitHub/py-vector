@@ -37,8 +37,11 @@ class PyVector():
 	_display_as_row = False
 	
 	# Fingerprint constants for O(1) change detection
-	_FP_P = (1 << 61) - 1  # Large prime (~2^61)
+	_FP_P = (1 << 61) - 1  # Mersenne prime (2^61 - 1)
 	_FP_B = 1315423911     # Base for rolling hash
+	_HASH_MASK = (1 << 61) - 1  # Mask for internal element hashes
+	_NAN_HASH = 0x9E3779B185  # Golden ratio constant for NaN
+	_NONE_HASH = 0x345678  # Constant for None
 
 	def schema(self):
 		"""Get the DataType schema of this vector."""
@@ -133,21 +136,97 @@ class PyVector():
 		_ALIAS_TRACKER.register(self, id(self._underlying))
 
 	@staticmethod
+	def _hash_element(x):
+		"""
+		Convert an arbitrary Python object into an integer for fingerprinting.
+		
+		Rules (in order):
+		- If it has `_fp`, use that (nested PyVector/PyTable)
+		- None -> dedicated constant
+		- Floats: normalize NaN and -0.0
+		- Primitive scalars (int, bool, str, bytes): use hash()
+		- Sets: sorted iteration for deterministic ordering
+		- Tuples/other iterables: recursive hashing without tuple() allocation
+		- Fallback: hash(repr(x)) or id(x)
+		"""
+		import math
+		from collections.abc import Iterable as IterableABC
+		
+		# Nested PyVector/PyTable
+		if hasattr(x, '_fp'):
+			return x._fp
+		
+		# None
+		if x is None:
+			return PyVector._NONE_HASH
+		
+		# Float normalization
+		if isinstance(x, float):
+			if math.isnan(x):
+				return PyVector._NAN_HASH
+			if x == 0.0:
+				return 0  # Collapse 0.0 and -0.0
+			return hash(x)
+		
+		# Primitive scalars
+		if isinstance(x, (int, bool, str, bytes)):
+			return hash(x)
+		
+		# Complex numbers
+		if isinstance(x, complex):
+			real_h = PyVector._hash_element(x.real)
+			imag_h = PyVector._hash_element(x.imag)
+			return (real_h * 1315423911 + imag_h) & PyVector._HASH_MASK
+		
+		# DateTime types (before generic iterables)
+		if isinstance(x, datetime):
+			return hash(x.isoformat())
+		if isinstance(x, date):
+			return hash(x.isoformat())
+		
+		# Sets: unordered → sort for deterministic hashing
+		if isinstance(x, set):
+			h = 0
+			B_mix = 1315423911
+			try:
+				for item in sorted(x):
+					h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
+			except TypeError:
+				# Elements not comparable, use unsorted
+				for item in x:
+					h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
+			return h
+		
+		# Tuples: structural iterables
+		if isinstance(x, tuple):
+			h = 0
+			B_mix = 1315423911
+			for item in x:
+				h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
+			return h
+		
+		# Other iterables (lists, custom containers)
+		if isinstance(x, IterableABC):
+			h = 0
+			B_mix = 1315423911
+			for item in x:
+				h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
+			return h
+		
+		# Fallback: use repr
+		try:
+			return hash(repr(x))
+		except Exception:
+			return id(x)
+	
+	@staticmethod
 	def _compute_fp(data):
-		"""Compute fingerprint from data"""
+		"""Compute fingerprint from data (O(n) rolling hash)"""
 		P = PyVector._FP_P
 		B = PyVector._FP_B
 		fp = 0
 		for x in data:
-			# Recursively use fingerprint for nested PyVectors
-			if hasattr(x, '_fp'):
-				h = x._fp
-			else:
-				try:
-					h = hash(x)
-				except TypeError:
-					# Unhashable type (like list) - convert to tuple
-					h = hash(tuple(x)) if hasattr(x, '__iter__') else hash(str(x))
+			h = PyVector._hash_element(x)
 			fp = (fp * B + h) % P
 		return fp
 
@@ -167,41 +246,45 @@ class PyVector():
 			# Simple vector: return stored fingerprint (O(1))
 			return self._fp
 		
-		# Table/nested: hash from column fingerprints
-		return hash(tuple(col.fingerprint() for col in self.cols()))
+		# Table/nested: combine column fingerprints via rolling hash
+		P = self._FP_P
+		B = self._FP_B
+		fp = 0
+		for col in self.cols():
+			h = col.fingerprint()
+			fp = (fp * B + h) % P
+		return fp
 
 	def _update_fp_single(self, idx, old, new):
-		"""O(1) update fingerprint when replacing element at index i"""
-		# Get hashes
-		if hasattr(old, '_fp'):
-			old_hash = old._fp
-		else:
-			try:
-				old_hash = hash(old)
-			except TypeError:
-				old_hash = hash(tuple(old)) if hasattr(old, '__iter__') else hash(str(old))
+		"""O(1) update fingerprint when replacing element at index idx"""
+		P = self._FP_P
 		
-		if hasattr(new, '_fp'):
-			new_hash = new._fp
-		else:
-			try:
-				new_hash = hash(new)
-			except TypeError:
-				new_hash = hash(tuple(new)) if hasattr(new, '__iter__') else hash(str(new))
+		old_hash = PyVector._hash_element(old)
+		new_hash = PyVector._hash_element(new)
 		
-		# Update rolling hash
-		diff = (new_hash - old_hash) * self._fp_powers[len(self) - idx - 1]
-		self._fp = (self._fp + diff) % self._FP_P
+		# Position weight for this index
+		pos = len(self) - idx - 1
+		position_weight = self._fp_powers[pos]
+		
+		diff = (new_hash - old_hash) * position_weight
+		self._fp = (self._fp + diff) % P
 
 	def _fp_update_multi(self, updates):
 		"""O(k) fingerprint update for k changes. updates = list of (index, old_value, new_value)"""
+		P = self._FP_P
 		fp = self._fp
+		
+		n = len(self)
 		for idx, old_v, new_v in updates:
-			old_h = hash(old_v) if not hasattr(old_v, '_fp') else old_v._fp
-			new_h = hash(new_v) if not hasattr(new_v, '_fp') else new_v._fp
-			position_weight = self._fp_powers[len(self) - 1 - idx]
+			old_h = PyVector._hash_element(old_v)
+			new_h = PyVector._hash_element(new_v)
+			
+			pos = n - 1 - idx
+			position_weight = self._fp_powers[pos]
+			
 			diff = (new_h - old_h) * position_weight
-			fp = (fp + diff) % self._FP_P
+			fp = (fp + diff) % P
+		
 		self._fp = fp
 
 	@classmethod

@@ -188,3 +188,201 @@ class TestChangeDetectionWorkflow:
         
         # No more changes
         assert v.fingerprint() == new_fp
+
+
+class TestFingerprintEdgeCases:
+	"""Test that fingerprinting handles edge cases correctly."""
+	
+	def test_none_fingerprint_stable(self):
+		"""None values should have consistent fingerprints."""
+		v1 = PyVector([1, None, 3])
+		v2 = PyVector([1, None, 3])
+		assert v1.fingerprint() == v2.fingerprint()
+	
+	def test_nan_fingerprint_stable(self):
+		"""NaN values should have consistent fingerprints despite NaN != NaN."""
+		v1 = PyVector([1.0, float('nan'), 3.0])
+		v2 = PyVector([1.0, float('nan'), 3.0])
+		assert v1.fingerprint() == v2.fingerprint()
+	
+	def test_negative_zero_equals_positive_zero(self):
+		"""Fingerprint should treat -0.0 and 0.0 as identical."""
+		v1 = PyVector([1.0, -0.0, 3.0])
+		v2 = PyVector([1.0, 0.0, 3.0])
+		assert v1.fingerprint() == v2.fingerprint()
+	
+	def test_complex_numbers(self):
+		"""Complex numbers should fingerprint consistently."""
+		v1 = PyVector([1+2j, 3+4j])
+		v2 = PyVector([1+2j, 3+4j])
+		assert v1.fingerprint() == v2.fingerprint()
+		
+		# Different complex numbers should have different fingerprints
+		v3 = PyVector([1+2j, 3+5j])
+		assert v1.fingerprint() != v3.fingerprint()
+	
+	def test_date_fingerprint(self):
+		"""Date objects should fingerprint consistently."""
+		from datetime import date
+		v1 = PyVector([date(2024, 1, 1), date(2024, 12, 31)])
+		v2 = PyVector([date(2024, 1, 1), date(2024, 12, 31)])
+		assert v1.fingerprint() == v2.fingerprint()
+		
+		v3 = PyVector([date(2024, 1, 1), date(2024, 12, 30)])
+		assert v1.fingerprint() != v3.fingerprint()
+	
+	def test_datetime_fingerprint(self):
+		"""DateTime objects should fingerprint consistently."""
+		from datetime import datetime
+		v1 = PyVector([datetime(2024, 1, 1, 12, 0), datetime(2024, 12, 31, 23, 59)])
+		v2 = PyVector([datetime(2024, 1, 1, 12, 0), datetime(2024, 12, 31, 23, 59)])
+		assert v1.fingerprint() == v2.fingerprint()
+		
+		v3 = PyVector([datetime(2024, 1, 1, 12, 0), datetime(2024, 12, 31, 23, 58)])
+		assert v1.fingerprint() != v3.fingerprint()
+	
+	def test_set_fingerprint_order_independent(self):
+		"""Sets should fingerprint consistently regardless of iteration order."""
+		v1 = PyVector([{1, 2, 3}, {4, 5}])
+		v2 = PyVector([{3, 2, 1}, {5, 4}])
+		assert v1.fingerprint() == v2.fingerprint()
+	
+	def test_nested_list_fingerprint(self):
+		"""Nested lists should fingerprint without converting to tuples."""
+		v1 = PyVector([[1, 2], [3, 4]])
+		v2 = PyVector([[1, 2], [3, 4]])
+		assert v1.fingerprint() == v2.fingerprint()
+		
+		v3 = PyVector([[1, 2], [3, 5]])
+		assert v1.fingerprint() != v3.fingerprint()
+	
+	def test_tuple_fingerprint(self):
+		"""Tuples should fingerprint recursively."""
+		v1 = PyVector([(1, 2), (3, 4)])
+		v2 = PyVector([(1, 2), (3, 4)])
+		assert v1.fingerprint() == v2.fingerprint()
+		
+		v3 = PyVector([(1, 2), (3, 5)])
+		assert v1.fingerprint() != v3.fingerprint()
+	
+	def test_nested_tuple_fingerprint(self):
+		"""Nested tuples should fingerprint correctly."""
+		v1 = PyVector([((1, 2), (3, 4)), ((5, 6), (7, 8))])
+		v2 = PyVector([((1, 2), (3, 4)), ((5, 6), (7, 8))])
+		assert v1.fingerprint() == v2.fingerprint()
+	
+	def test_mixed_types_fingerprint(self):
+		"""Vectors with mixed types should fingerprint consistently."""
+		import warnings
+		from datetime import date
+		# Mixed types degrade to object dtype - expect warning
+		with warnings.catch_warnings():
+			warnings.simplefilter("ignore", UserWarning)
+			v1 = PyVector([1, 'hello', 3.14, None, date(2024, 1, 1)])
+			v2 = PyVector([1, 'hello', 3.14, None, date(2024, 1, 1)])
+		assert v1.fingerprint() == v2.fingerprint()
+
+
+class TestFingerprintIncrementalUpdates:
+	"""Test that incremental fingerprint updates work correctly."""
+	
+	def test_single_update_matches_recompute(self):
+		"""Single element update should match full recompute."""
+		v = PyVector([1, 2, 3, 4, 5])
+		fp_before = v.fingerprint()
+		
+		# Manual update
+		v[2] = 99
+		fp_after_incremental = v.fingerprint()
+		
+		# Full recompute
+		v_fresh = PyVector([1, 2, 99, 4, 5])
+		fp_after_recompute = v_fresh.fingerprint()
+		
+		assert fp_after_incremental == fp_after_recompute
+		assert fp_before != fp_after_incremental
+	
+	def test_single_update_with_none(self):
+		"""Updating to/from None should work correctly."""
+		v = PyVector([1, 2, 3])
+		v[1] = None
+		fp1 = v.fingerprint()
+		
+		v_expected = PyVector([1, None, 3])
+		assert fp1 == v_expected.fingerprint()
+	
+	def test_single_update_with_nan(self):
+		"""Updating to/from NaN should work correctly."""
+		v = PyVector([1.0, 2.0, 3.0])
+		v[1] = float('nan')
+		fp1 = v.fingerprint()
+		
+		v_expected = PyVector([1.0, float('nan'), 3.0])
+		assert fp1 == v_expected.fingerprint()
+	
+	def test_single_update_with_negative_zero(self):
+		"""Updating between -0.0 and 0.0 should not change fingerprint."""
+		v = PyVector([1.0, 0.0, 3.0])
+		fp_before = v.fingerprint()
+		
+		v[1] = -0.0
+		fp_after = v.fingerprint()
+		
+		assert fp_before == fp_after
+	
+	def test_multi_update_matches_recompute(self):
+		"""Multiple element updates should match full recompute."""
+		v = PyVector([1, 2, 3, 4, 5])
+		
+		# Simulate multi-update via setitem slice
+		v[1:4] = [20, 30, 40]
+		fp_after_incremental = v.fingerprint()
+		
+		# Full recompute
+		v_fresh = PyVector([1, 20, 30, 40, 5])
+		fp_after_recompute = v_fresh.fingerprint()
+		
+		assert fp_after_incremental == fp_after_recompute
+	
+	def test_update_with_complex_types(self):
+		"""Updates with complex types should work."""
+		v = PyVector([[1, 2], [3, 4], [5, 6]])
+		v[1] = [30, 40]
+		fp1 = v.fingerprint()
+		
+		v_expected = PyVector([[1, 2], [30, 40], [5, 6]])
+		assert fp1 == v_expected.fingerprint()
+
+
+class TestFingerprintDeterminism:
+	"""Test that fingerprints are deterministic across runs."""
+	
+	def test_same_data_same_fingerprint_multiple_times(self):
+		"""Creating the same vector multiple times should give same fingerprint."""
+		import warnings
+		fingerprints = []
+		for _ in range(10):
+			# Mixed types degrade to object dtype - suppress warning
+			with warnings.catch_warnings():
+				warnings.simplefilter("ignore", UserWarning)
+				v = PyVector([1, 2, 3, 'hello', None, float('nan')])
+			fingerprints.append(v.fingerprint())
+		
+		# All should be identical
+		assert len(set(fingerprints)) == 1
+	
+	def test_empty_vector_fingerprint(self):
+		"""Empty vectors should fingerprint consistently."""
+		v1 = PyVector([])
+		v2 = PyVector([])
+		assert v1.fingerprint() == v2.fingerprint()
+		assert v1.fingerprint() == 0  # Empty should hash to 0
+	
+	def test_single_element_vectors(self):
+		"""Single element vectors should fingerprint correctly."""
+		v1 = PyVector([42])
+		v2 = PyVector([42])
+		v3 = PyVector([43])
+		
+		assert v1.fingerprint() == v2.fingerprint()
+		assert v1.fingerprint() != v3.fingerprint()
