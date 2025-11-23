@@ -389,6 +389,37 @@ class PyTable(PyVector):
 			return PyVector([x << y for x, y in zip(self._underlying, other._underlying, strict=True)])
 		return PyVector([x << y for x, y in zip(self._underlying, other, strict=True)])
 
+	@staticmethod
+	def _validate_key_tuple_hashable(key_tuple, key_cols, row_idx):
+		"""
+		Validate that a join key tuple is hashable (for object dtype columns).
+		
+		Args:
+			key_tuple: The tuple of key values to validate
+			key_cols: List of key column PyVectors
+			row_idx: Row index for error messages
+		
+		Raises:
+			PyVectorTypeError: If any key component is not hashable
+		"""
+		try:
+			hash(key_tuple)
+		except TypeError as e:
+			# Find which component failed
+			for i, (component, col) in enumerate(zip(key_tuple, key_cols)):
+				try:
+					hash(component)
+				except TypeError:
+					col_name = col._name or f"key_{i}"
+					raise PyVectorTypeError(
+						f"Join key value in '{col_name}' at row {row_idx} is not hashable: "
+						f"{type(component).__name__}. Join keys must be hashable."
+					) from e
+			# If we can't find the specific component, raise generic error
+			raise PyVectorTypeError(
+				f"Join key at row {row_idx} is not hashable."
+			) from e
+
 	def _validate_join_keys(self, other, left_on, right_on):
 		"""
 		Validate and normalize join key specification.
@@ -398,29 +429,64 @@ class PyTable(PyVector):
 			left_on: Column name(s) or PyVector(s) from left table
 			right_on: Column name(s) or PyVector(s) from right table
 		
-		Accepted forms:
-		- Single column:  left_on="id", right_on="customer_id"
-		- Multiple:       left_on=["id","date"], right_on=["cust_id","trans_date"]
-		- PyVector:       left_on=table1.id, right_on=table2.customer_id
-		
 		Returns:
 			List of (left_col, right_col) tuples (PyVector objects)
 		
 		Raises:
-			ValueError: If parameters are invalid or mismatched
+			PyVectorValueError: For malformed specs or validation failures
+			PyVectorTypeError: For invalid dtypes or unhashable values
 		"""
-		# Helper to get column by name or return PyVector as-is
+		from datetime import date, datetime
+		
+		# Helper: Resolve column from name or PyVector, validate ownership
 		def get_column(table, col_spec, side_name):
+			# CASE 1 — string column name
 			if isinstance(col_spec, str):
 				try:
-					return table[col_spec]
+					col = table[col_spec]
 				except (KeyError, ValueError):
-					raise _missing_col_error(col_spec, context=f"{side_name} table")
+					raise _missing_col_error(
+						col_spec,
+						context=f"{side_name} table"
+					)
+			
+			# CASE 2 — direct PyVector
 			elif isinstance(col_spec, PyVector):
-				return col_spec
+				col = col_spec
+				# Note: Column ownership validation could be added here if PyVector
+				# gains a _parent_table attribute in the future
+			
 			else:
 				raise PyVectorValueError(
-					f"Column specification must be string or PyVector, got {type(col_spec).__name__}"
+					f"Column specification must be string or PyVector, got "
+					f"{type(col_spec).__name__}"
+				)
+			
+			return col
+		
+		# Helper: Validate column dtype for join keys (static type check)
+		def validate_key_dtype(col, side_name, idx):
+			schema = col.schema()
+			if schema is None:
+				# Empty/untyped vectors - validate at runtime below
+				return
+			
+			kind = schema.kind
+			
+			# Floats are NOT allowed — non-deterministic equality
+			if kind is float:
+				raise PyVectorTypeError(
+					f"Invalid join key dtype 'float' at position {idx} on {side_name} side. "
+					"Floating-point columns cannot be used as join keys due to precision issues."
+				)
+			
+			# Allowed types: hashable and have stable equality
+			# complex is excluded (not typically used for joins, can be added if needed)
+			allowed_types = (int, str, bool, date, datetime, object)
+			if kind not in allowed_types:
+				raise PyVectorTypeError(
+					f"Invalid join key dtype '{kind.__name__}' at position {idx} on {side_name} side. "
+					"Join keys must support stable equality and hashing."
 				)
 		
 		# Normalize to lists
@@ -429,10 +495,10 @@ class PyTable(PyVector):
 		if isinstance(right_on, (str, PyVector)):
 			right_on = [right_on]
 		
-		if not isinstance(left_on, list) or not isinstance(right_on, list):
+		if not (isinstance(left_on, list) and isinstance(right_on, list)):
 			raise PyVectorValueError("left_on and right_on must be strings, PyVectors, or lists")
 		
-		if len(left_on) == 0 or len(right_on) == 0:
+		if not left_on or not right_on:
 			raise PyVectorValueError("Must specify at least 1 join key")
 		
 		if len(left_on) != len(right_on):
@@ -441,23 +507,37 @@ class PyTable(PyVector):
 				f"got {len(left_on)} and {len(right_on)}"
 			)
 		
-		# Build list of (left_col, right_col) tuples
+		# Build final list of join key pairs
 		normalized = []
 		for i, (left_spec, right_spec) in enumerate(zip(left_on, right_on)):
-			left_col = get_column(self, left_spec, "Left")
-			right_col = get_column(other, right_spec, "Right")
+			left_col = get_column(self, left_spec, "left")
+			right_col = get_column(other, right_spec, "right")
 			
-			# Validate PyVector lengths match their respective tables
+			# Length validation
 			if len(left_col) != len(self):
-				raise ValueError(
+				raise PyVectorValueError(
 					f"Left join key at index {i} has length {len(left_col)}, "
 					f"but left table has {len(self)} rows"
 				)
 			if len(right_col) != len(other):
-				raise ValueError(
+				raise PyVectorValueError(
 					f"Right join key at index {i} has length {len(right_col)}, "
 					f"but right table has {len(other)} rows"
 				)
+			
+			# Dtype validation
+			validate_key_dtype(left_col, "left", i)
+			validate_key_dtype(right_col, "right", i)
+			
+			# Matching dtype validation (both must have schemas and same kind)
+			left_schema = left_col.schema()
+			right_schema = right_col.schema()
+			if left_schema is not None and right_schema is not None:
+				if left_schema.kind is not right_schema.kind:
+					raise PyVectorTypeError(
+						f"Join key at index {i} has mismatched dtypes: "
+						f"{left_schema.kind.__name__} (left) vs {right_schema.kind.__name__} (right)"
+					)
 			
 			normalized.append((left_col, right_col))
 		
@@ -466,7 +546,8 @@ class PyTable(PyVector):
 	def inner_join(self, other, left_on, right_on, expect='many_to_one'):
 		"""
 		Inner join two PyTables on specified key columns.
-		Only returns rows where keys match in both tables.		Args:
+		Only returns rows where keys match in both tables.		
+		Args:
 			other: PyTable to join with
 			left_on: Column name(s) or PyVector(s) from left table
 			right_on: Column name(s) or PyVector(s) from right table
@@ -482,10 +563,24 @@ class PyTable(PyVector):
 		left_keys = [left_col for left_col, _ in on]
 		right_keys = [right_col for _, right_col in on]
 		
+		# Determine if we need to validate hashability (only for object dtype columns)
+		validate_hashable = any(
+			(col.schema() is None or col.schema().kind is object)
+			for col in (left_keys + right_keys)
+		)
+		
 		# Build hash map: right_key_tuple -> list of right row indices
 		right_index = {}
 		for row_idx in range(len(other)):
-			key = tuple(right_keys[i][row_idx] for i in range(len(right_keys)))
+			key_components = [right_keys[i][row_idx] for i in range(len(right_keys))]
+			key = tuple(key_components)
+			if validate_hashable:
+				PyTable._validate_key_tuple_hashable(
+					key,
+					key_cols=right_keys,
+					row_idx=row_idx,
+					side='right'
+				)
 			if key not in right_index:
 				right_index[key] = []
 			right_index[key].append(row_idx)
@@ -508,7 +603,15 @@ class PyTable(PyVector):
 		# Perform join
 		result_rows = []
 		for left_idx in range(len(self)):
-			key = tuple(left_keys[i][left_idx] for i in range(len(left_keys)))
+			key_components = [left_keys[i][left_idx] for i in range(len(left_keys))]
+			key = tuple(key_components)
+			if validate_hashable:
+				PyTable._validate_key_tuple_hashable(
+					key,
+					key_cols=left_keys,
+					row_idx=left_idx,
+					side='left'
+				)
 			
 			# Check one_to_many / one_to_one constraint
 			if expect in ('one_to_one', 'one_to_many'):
@@ -557,86 +660,135 @@ class PyTable(PyVector):
 			other: PyTable to join with
 			left_on: Column name(s) or PyVector(s) from left table
 			right_on: Column name(s) or PyVector(s) from right table
-			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
+			expect: Cardinality expectation - 'one_to_one', 'many_to_one',
+			        'one_to_many', or 'many_to_many'
 		
 		Returns:
 			PyTable with joined results
 		"""
+		# Validate expectation value early
+		if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
+			raise PyVectorValueError(
+				f"Invalid expect value '{expect}'. "
+				"Must be one of 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
+			)
+		
 		# Validate and normalize join keys
-		on = self._validate_join_keys(other, left_on, right_on)
+		pairs = self._validate_join_keys(other, left_on, right_on)
 		
-		# Extract join key columns from left (self) and right (other)
-		left_keys = [left_col for left_col, _ in on]
-		right_keys = [right_col for _, right_col in on]
+		# Extract join key columns (PyVectors)
+		left_keys = [lk for lk, _ in pairs]
+		right_keys = [rk for _, rk in pairs]
 		
-		# Build hash map: right_key_tuple -> list of right row indices
+		# Check if any key columns have object dtype (need runtime validation)
+		validate_hashable = any(
+			(col.schema() is None or col.schema().kind is object)
+			for col in (left_keys + right_keys)
+		)
+		
+		left_nrows = len(self)
+		right_nrows = len(other)
+		left_cols = self._underlying
+		right_cols = other._underlying
+		n_left_cols = len(left_cols)
+		n_right_cols = len(right_cols)
+		
+		# Build hash map on right: key_tuple -> list of row indices
 		right_index = {}
-		for row_idx in range(len(other)):
-			key = tuple(right_keys[i][row_idx] for i in range(len(right_keys)))
-			if key not in right_index:
-				right_index[key] = []
-			right_index[key].append(row_idx)
+		check_right_unique = expect in ('one_to_one', 'many_to_one')
+		if check_right_unique:
+			duplicates = {}
 		
-		# Check cardinality expectations on right side
-		if expect in ('one_to_one', 'many_to_one'):
-			# Right side must have unique keys
-			duplicates = {k: indices for k, indices in right_index.items() if len(indices) > 1}
-			if duplicates:
-				raise PyVectorValueError(
-					f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
-					f"Found {len(duplicates)} duplicate key(s), e.g., {list(duplicates.keys())[0]} "
-					f"appears {len(list(duplicates.values())[0])} times."
-				)
+		for row_idx in range(right_nrows):
+			key = tuple(col[row_idx] for col in right_keys)
+			
+			# Validate hashability for object dtype columns
+			if validate_hashable:
+				self._validate_key_tuple_hashable(key, right_keys, row_idx)
+			
+			bucket = right_index.get(key)
+			if bucket is None:
+				right_index[key] = [row_idx]
+			else:
+				bucket.append(row_idx)
+				if check_right_unique and key not in duplicates:
+					duplicates[key] = bucket
 		
-		# Track left side key uniqueness for one_to_many and one_to_one
-		if expect in ('one_to_one', 'one_to_many'):
+		# Enforce right-side uniqueness if required
+		if check_right_unique and duplicates:
+			example_key, example_indices = next(iter(duplicates.items()))
+			raise PyVectorValueError(
+				f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
+				f"Found at least {len(duplicates)} duplicate key(s), e.g., {example_key} "
+				f"appears {len(example_indices)} times."
+			)
+		
+		# Prepare left-side uniqueness tracking if needed
+		check_left_unique = expect in ('one_to_one', 'one_to_many')
+		if check_left_unique:
 			left_keys_seen = set()
 		
-		# Perform left join
-		result_rows = []
-		for left_idx in range(len(self)):
-			key = tuple(left_keys[i][left_idx] for i in range(len(left_keys)))
+		# Perform left join, building result in COLUMN-MAJOR form
+		total_cols = n_left_cols + n_right_cols
+		result_data = [[] for _ in range(total_cols)]
+		
+		# Local binds for speed
+		result_append_cols = [col.append for col in result_data]
+		right_index_get = right_index.get
+		
+		for left_idx in range(left_nrows):
+			key = tuple(col[left_idx] for col in left_keys)
 			
-			# Check one_to_many / one_to_one constraint
-			if expect in ('one_to_one', 'one_to_many'):
+			# Validate hashability for object dtype columns
+			if validate_hashable:
+				self._validate_key_tuple_hashable(key, left_keys, left_idx)
+			
+			# Enforce left-side uniqueness if needed
+			if check_left_unique:
 				if key in left_keys_seen:
 					raise PyVectorValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
 			
-			# Find matching right rows
-			if key in right_index:
-				for right_idx in right_index[key]:
-					# Combine left and right rows
-					left_row = [col[left_idx] for col in self._underlying]
-					right_row = [col[right_idx] for col in other._underlying]
-					result_rows.append(left_row + right_row)
+			matches = right_index_get(key)
+			
+			if matches:
+				# For each matching right row, append combined row
+				for right_idx in matches:
+					# Append left columns
+					for c_idx, col in enumerate(left_cols):
+						result_append_cols[c_idx](col[left_idx])
+					
+					# Append right columns
+					base = n_left_cols
+					for offset, col in enumerate(right_cols):
+						result_append_cols[base + offset](col[right_idx])
 			else:
-				# No match: left row with None for right columns
-				left_row = [col[left_idx] for col in self._underlying]
-				right_row = [None] * len(other._underlying)
-				result_rows.append(left_row + right_row)
+				# No match: left row with None for all right columns
+				for c_idx, col in enumerate(left_cols):
+					result_append_cols[c_idx](col[left_idx])
+				
+				base = n_left_cols
+				for offset in range(n_right_cols):
+					result_append_cols[base + offset](None)
 		
-		if not result_rows:
-			# Empty result
+		# Handle completely empty result
+		if left_nrows == 0:
 			return PyTable([])
 		
-		# Transpose result_rows to get columns
-		num_cols = len(self._underlying) + len(other._underlying)
+		# Wrap result_data into PyVectors, preserving column names
 		result_cols = []
-		for col_idx in range(num_cols):
-			col_data = [row[col_idx] for row in result_rows]
-			
-			# Preserve column names
-			if col_idx < len(self._underlying):
-				# Left table column
-				orig_col = self._underlying[col_idx]
-				result_cols.append(PyVector(col_data, name=orig_col._name))
-			else:
-				# Right table column
-				orig_col = other._underlying[col_idx - len(self._underlying)]
-				result_cols.append(PyVector(col_data, name=orig_col._name))
+		
+		# Left table columns
+		for col_idx, orig_col in enumerate(left_cols):
+			col_data = result_data[col_idx]
+			result_cols.append(PyVector(col_data, name=orig_col._name))
+		
+		# Right table columns
+		for j, orig_col in enumerate(right_cols):
+			col_data = result_data[n_left_cols + j]
+			result_cols.append(PyVector(col_data, name=orig_col._name))
 		
 		return PyTable(result_cols)
 
@@ -661,10 +813,24 @@ class PyTable(PyVector):
 		left_keys = [left_col for left_col, _ in on]
 		right_keys = [right_col for _, right_col in on]
 		
+		# Determine if we need to validate hashability (only for object dtype columns)
+		validate_hashable = any(
+			(col.schema() is None or col.schema().kind is object)
+			for col in (left_keys + right_keys)
+		)
+		
 		# Build hash maps for both sides
 		right_index = {}
 		for row_idx in range(len(other)):
-			key = tuple(right_keys[i][row_idx] for i in range(len(right_keys)))
+			key_components = [right_keys[i][row_idx] for i in range(len(right_keys))]
+			key = tuple(key_components)
+			if validate_hashable:
+				PyTable._validate_key_tuple_hashable(
+					key,
+					key_cols=right_keys,
+					row_idx=row_idx,
+					side='right'
+				)
 			if key not in right_index:
 				right_index[key] = []
 			right_index[key].append(row_idx)
@@ -689,7 +855,15 @@ class PyTable(PyVector):
 		# Perform left side of full join
 		result_rows = []
 		for left_idx in range(len(self)):
-			key = tuple(left_keys[i][left_idx] for i in range(len(left_keys)))
+			key_components = [left_keys[i][left_idx] for i in range(len(left_keys))]
+			key = tuple(key_components)
+			if validate_hashable:
+				PyTable._validate_key_tuple_hashable(
+					key,
+					key_cols=left_keys,
+					row_idx=left_idx,
+					side='left'
+				)
 			
 			# Check one_to_many / one_to_one constraint
 			if expect in ('one_to_one', 'one_to_many'):

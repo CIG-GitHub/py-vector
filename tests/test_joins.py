@@ -1,6 +1,7 @@
 import pytest
 from py_vector import PyVector
 from py_vector import PyTable
+from py_vector.errors import PyVectorTypeError
 
 
 def test_inner_join_basic():
@@ -291,7 +292,7 @@ def test_join_key_validation_missing_column():
 
 
 def test_join_with_computed_keys():
-	"""Test joining on computed/transformed PyVectors"""
+	"""Test that float columns are rejected as join keys"""
 	left = PyTable({
 		'price': [100.0, 200.0, 300.0],
 		'name': ['A', 'B', 'C']
@@ -301,12 +302,9 @@ def test_join_with_computed_keys():
 		'quantity': [1, 2, 3]
 	})
 	
-	# Join on computed expression: price * 1.08
-	result = left.inner_join(right, left_on=left['price'] * 1.08, right_on=right['price_with_tax'])
-	
-	assert len(result) == 3
-	assert list(result['name']) == ['A', 'B', 'C']
-	assert list(result['quantity']) == [1, 2, 3]
+	# Float keys should be rejected due to precision issues
+	with pytest.raises(PyVectorTypeError, match="Invalid join key dtype 'float'"):
+		left.inner_join(right, left_on=left['price'] * 1.08, right_on=right['price_with_tax'])
 
 
 def test_join_with_constant_vector():
