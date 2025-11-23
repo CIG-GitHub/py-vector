@@ -490,77 +490,150 @@ class PyVector():
 
 	def __setitem__(self, key, value):
 		"""
-		Set items in-place with correct alias tracking, dtype promotion,
-		and support for boolean masks, slices, integer indices, and index vectors.
-		"""
-		_ALIAS_TRACKER.check_writable(self, id(self._underlying))
+		Optimized in-place assignment for PyVector with:
+		- boolean masks
+		- slices
+		- integer indices
+		- index vectors
+		- list/tuple index sets
 
+		Includes:
+		- dtype validation & promotion
+		- copy-on-write
+		- alias tracking
+		- fingerprint incremental update
+		"""
+
+		_alias = _ALIAS_TRACKER
+		_alias.check_writable(self, id(self._underlying))
+
+		# === Fast precomputed checks ===
 		key = self._check_duplicate(key)
 		value = self._check_duplicate(value)
 
-		updates = []   # list of (idx, new_value)
+		# Is the incoming value iterable?
+		is_seq_val = (
+			hasattr(value, "__iter__")
+			and not isinstance(value, (str, bytes, bytearray))
+		)
 
-		# CASE 1 — Boolean mask
-		if (isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable) \
-		or (isinstance(key, list) and {type(e) for e in key} == {bool}):
+		n = len(self)
+		underlying = self._underlying  # local bind
+		append_update = lambda idx, v: updates.append((idx, v))
 
-			if len(key) != len(self):
+		updates = []  # list of (idx, new_value)
+
+		# =====================================================================
+		# CASE 1 — Boolean mask (fast-path)
+		# =====================================================================
+		if (
+			isinstance(key, PyVector)
+			and key.schema().kind == bool
+			and not key.schema().nullable
+		) or (
+			isinstance(key, list) and all(isinstance(e, bool) for e in key)
+		):
+			if len(key) != n:
 				raise PyVectorValueError("Boolean mask length must match vector length.")
 
-			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
-				if sum(key) != len(value):
-					raise PyVectorValueError("Iterable length must match number of True mask elements.")
-				it = iter(value)
-				for idx, flag in enumerate(key):
-					if flag:
-						updates.append((idx, next(it)))
+			# Precompute true indices (much faster than branch-per-element)
+			true_indices = [i for i, flag in enumerate(key) if flag]
+			tcount = len(true_indices)
+
+			if is_seq_val:
+				if tcount != len(value):
+					raise PyVectorValueError(
+						"Iterable length must match number of True mask elements."
+					)
+				for idx, v in zip(true_indices, value):
+					append_update(idx, v)
 			else:
-				for idx, flag in enumerate(key):
-					if flag:
-						updates.append((idx, value))
+				for idx in true_indices:
+					append_update(idx, value)
 
-		# CASE 2 — Slice
+		# =====================================================================
+		# CASE 2 — Slice assignment
+		# =====================================================================
 		elif isinstance(key, slice):
-			slice_len = slice_length(key, len(self))
+			slice_len = slice_length(key, n)
+			start, stop, step = key.indices(n)
 
-			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
+			if is_seq_val:
 				if slice_len != len(value):
 					raise PyVectorValueError("Slice length and value length must match.")
 				values_to_assign = value
 			else:
+				# repeat the scalar
 				values_to_assign = [value] * slice_len
 
-			start, stop, step = key.indices(len(self))
-			for idx, val in zip(range(start, stop, step), values_to_assign):
-				updates.append((idx, val))
+			# faster than enumerate(zip()) for slices
+			rng = range(start, stop, step)
+			for idx, new_val in zip(rng, values_to_assign):
+				append_update(idx, new_val)
 
+		# =====================================================================
 		# CASE 3 — Single integer index
+		# =====================================================================
 		elif isinstance(key, int):
-			if not (-len(self) <= key < len(self)):
-				raise PyVectorIndexError(f"Index {key} out of range for vector length {len(self)}")
-			updates.append((key, value))
+			# normalize negative index
+			if key < 0:
+				key += n
+			if not (0 <= key < n):
+				raise PyVectorIndexError(
+					f"Index {key} out of range for vector length {n}"
+				)
+			append_update(key, value)
 
+		# =====================================================================
 		# CASE 4 — PyVector of integer indices
-		elif isinstance(key, PyVector) and key.schema().kind == int and not key.schema().nullable:
-			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
+		# =====================================================================
+		elif (
+			isinstance(key, PyVector)
+			and key.schema().kind == int
+			and not key.schema().nullable
+		):
+			if is_seq_val:
 				if len(key) != len(value):
-					raise PyVectorValueError("Index-vector length must match value length.")
+					raise PyVectorValueError(
+						"Index-vector length must match value length."
+					)
 				for idx, val in zip(key, value):
-					updates.append((idx, val))
+					if idx < 0:
+						idx += n
+					if not (0 <= idx < n):
+						raise PyVectorIndexError(f"Index {idx} out of range.")
+					append_update(idx, val)
 			else:
 				for idx in key:
-					updates.append((idx, value))
+					if idx < 0:
+						idx += n
+					if not (0 <= idx < n):
+						raise PyVectorIndexError(f"Index {idx} out of range.")
+					append_update(idx, value)
 
+		# =====================================================================
 		# CASE 5 — List or tuple of integer indices
-		elif isinstance(key, (list, tuple)) and {type(e) for e in key} == {int}:
-			if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, bytearray)):
+		# =====================================================================
+		elif (
+			isinstance(key, (list, tuple))
+			and all(isinstance(e, int) for e in key)
+		):
+			if is_seq_val:
 				if len(key) != len(value):
 					raise PyVectorValueError("Index list must match value length.")
 				for idx, val in zip(key, value):
-					updates.append((idx, val))
+					if idx < 0:
+						idx += n
+					if not (0 <= idx < n):
+						raise PyVectorIndexError(f"Index {idx} out of range.")
+					append_update(idx, val)
 			else:
 				for idx in key:
-					updates.append((idx, value))
+					if idx < 0:
+						idx += n
+					if not (0 <= idx < n):
+						raise PyVectorIndexError(f"Index {idx} out of range.")
+					append_update(idx, value)
 
 		else:
 			raise PyVectorTypeError(
@@ -568,46 +641,53 @@ class PyVector():
 				"integer vector, or list/tuple of ints."
 			)
 
+		# =====================================================================
 		# FAST-PATH TYPE CHECK / PROMOTION
-		new_values = [v for _, v in updates]
+		# =====================================================================
+		if updates:
+			new_values = [v for _, v in updates]
 
-		incompatible_value = None
-		if self._dtype is not None and new_values:
-			for val in new_values:
-				try:
-					validate_scalar(val, self._dtype)
-				except TypeError:
-					incompatible_value = val
-					break
+			if self._dtype is not None:
+				incompatible = None
+				for val in new_values:
+					try:
+						validate_scalar(val, self._dtype)
+					except TypeError:
+						incompatible = val
+						break
 
-		if incompatible_value is not None:
-			required_dtype = infer_dtype([incompatible_value])
-			try:
-				self._promote(required_dtype.kind)
-			except PyVectorTypeError:
-				raise PyVectorTypeError(
-					f"Cannot set {required_dtype.kind.__name__} in "
-					f"{self._dtype.kind.__name__} vector. "
-					f"Promotion not supported."
-				)
+				if incompatible is not None:
+					required_dtype = infer_dtype([incompatible])
+					try:
+						self._promote(required_dtype.kind)
+					except PyVectorTypeError:
+						raise PyVectorTypeError(
+							f"Cannot set {required_dtype.kind.__name__} in "
+							f"{self._dtype.kind.__name__} vector. "
+							f"Promotion not supported."
+						)
 
-		# MUTATE — copy-on-write
-		data = list(self._underlying)
-		fp_updates = []
+		# =====================================================================
+		# MUTATE — copy-on-write + fingerprint updates
+		# =====================================================================
+		data_list = list(underlying)           # COW materialization
+		fp_updates = []                        # (idx, old_val, new_val)
 
 		for idx, new_val in updates:
-			old_val = data[idx]
-			data[idx] = new_val
+			old_val = data_list[idx]
+			data_list[idx] = new_val
 			fp_updates.append((idx, old_val, new_val))
 
-		new_tuple = tuple(data)
-		old_id = id(self._underlying)
-		
-		_ALIAS_TRACKER.unregister(self, old_id)
-		self._underlying = new_tuple
-		_ALIAS_TRACKER.register(self, id(new_tuple))
+		new_tuple = tuple(data_list)
+		old_id = id(underlying)
 
+		_alias.unregister(self, old_id)
+		self._underlying = new_tuple
+		_alias.register(self, id(new_tuple))
+
+		# incremental fingerprint update
 		self._fp_update_multi(fp_updates)
+
 
 
 	""" Comparison Operators - equality and hashing
