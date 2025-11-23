@@ -838,6 +838,36 @@ class PyVector():
 		
 		return PyVector(results)
 
+	def sort_values(self, reverse=False, na_last=True):
+		"""
+		Stable sort. Returns a new PyVector.
+
+		Parameters
+		----------
+		reverse : bool
+			Sort in descending order if True
+		na_last : bool
+			If True, None sorts after all valid values.
+			If False, None sorts before all valid values.
+		
+		Returns
+		-------
+		PyVector
+			Sorted vector with same dtype
+		"""
+		# Build key for each element
+		if na_last:
+			key_fn = lambda x: (x is None, x if x is not None else 0)
+		else:
+			key_fn = lambda x: (0 if x is None else 1, x if x is not None else 0)
+		
+		new_values = tuple(sorted(self._underlying, key=key_fn, reverse=reverse))
+
+		# dtype DOES NOT change — preserving nullability and kind
+		new_vector = PyVector(new_values, dtype=self._dtype, name=self._name)
+
+		return new_vector
+
 
 	def _check_duplicate(self, other):
 		if id(self) == id(other):
