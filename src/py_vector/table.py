@@ -84,6 +84,9 @@ class PyTable(PyVector):
 		else:
 			initial = ()
 		
+		# Set _dtype to None explicitly since PyTable bypasses PyVector.__new__
+		self._dtype = None
+		
 		# Call parent constructor
 		super().__init__(initial, dtype=dtype, name=name)
 		
@@ -357,11 +360,11 @@ class PyTable(PyVector):
 	def __rshift__(self, other):
 		""" The >> operator behavior has been overridden to add the column(s) of other to self
 		"""
-		if self._dtype.kind in (bool, int) and isinstance(other, int):
+		if self._dtype is not None and self._dtype.kind in (bool, int) and isinstance(other, int):
 			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
 
 		if isinstance(other, PyTable):
-			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
+			if self._dtype is not None and not self._dtype.nullable and other.schema() is not None and not other.schema().nullable and self._dtype.kind != other.schema().kind:
 				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector(self.cols() + other.cols(),

@@ -53,17 +53,13 @@ class PyVector():
 		----------
 		initial : iterable
 			Initial values
-		dtype : DType, type, or None
-			Type specification. Can be DType instance or Python type (int, float, str)
+		dtype : DataType, type, or None
+			Type specification. Can be DataType instance or Python type (int, float, str)
 		name : str, optional
 			Name for the vector
 		as_row : bool, default False
 			Display as row instead of column
 		"""
-		# Convert Python types to DataType if needed
-		if dtype is not None and not isinstance(dtype, DataType):
-			dtype = DataType(dtype)
-		
 		# Check if we're creating a PyTable (all elements are vectors of same length)
 		if initial and all(isinstance(x, PyVector) for x in initial):
 			if len({len(x) for x in initial}) == 1:
@@ -71,13 +67,16 @@ class PyVector():
 				return PyTable(initial=initial, dtype=dtype, name=name, as_row=as_row)
 			warnings.warn('Passing vectors of different length will not produce a PyTable.')
 		
+		# Convert Python types to DataType if needed
+		if dtype is not None and not isinstance(dtype, DataType):
+			dtype = DataType(dtype)
+		
 		# Infer dtype if not provided
 		if dtype is None and initial:
 			dtype = infer_dtype(initial)
 		# Empty vector keeps dtype=None for backwards compatibility
 		
 		# Dispatch to typed subclasses based on inferred dtype
-		# Create instance directly using object.__new__ to avoid recursion
 		target_class = cls
 		if dtype is not None:
 			if dtype.kind is str:
@@ -92,10 +91,8 @@ class PyVector():
 		# Create instance using object.__new__ (bypasses __new__ dispatch)
 		instance = super(PyVector, target_class).__new__(target_class)
 		
-		# Store the inferred dtype on the instance so __init__ can use it
-		# This is necessary because Python calls __init__ with the original arguments,
-		# not with our inferred dtype
-		instance._inferred_dtype = dtype
+		# Stash dtype on instance for __init__ to use
+		instance._dtype = dtype
 		
 		# Python will automatically call __init__ after this returns
 		return instance
@@ -104,33 +101,20 @@ class PyVector():
 
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		"""
-		Create a new PyVector from an initial sequence.
+		Initialize a new PyVector instance.
 		
 		Parameters
 		----------
 		initial : iterable
 			Initial values
-		dtype : DType, type, or None
-			Type specification
+		dtype : DataType, type, or None
+			Type specification (ignored - already set by __new__)
 		name : str, optional
 			Name for the vector
 		as_row : bool, default False
 			Display as row instead of column
 		"""
-		# Use dtype inferred by __new__ if available
-		# Use __dict__ to avoid triggering __getattr__ in subclasses like PyTable
-		if dtype is None and '_inferred_dtype' in self.__dict__:
-			dtype = self._inferred_dtype
-		
-		# Convert Python types to DataType if needed
-		if dtype is not None and not isinstance(dtype, DataType):
-			dtype = DataType(dtype)
-		
-		# Infer dtype if not provided
-		if dtype is None and initial:
-			dtype = infer_dtype(initial)
-		
-		self._dtype = dtype
+		# dtype already set by __new__, just initialize remaining attributes
 		self._name = None
 		if name is not None:
 			self.rename(name)
@@ -743,13 +727,7 @@ class PyVector():
 			# Python type like int, float
 			target_kind = new_dtype
 		else:
-			# Old string-based API
-			type_map = {
-				"int": int, "float": float, "complex": complex,
-				"string": str, "bool": bool,
-				"date": date, "datetime": datetime,
-			}
-			target_kind = type_map.get(new_dtype, object)
+			raise PyVectorTypeError(f"new_dtype must be a DataType instance or Python type, not {type(new_dtype).__name__}")
 			
 		# Already the target type
 		if self._dtype.kind is target_kind:
@@ -1030,25 +1008,19 @@ class PyVector():
 
 class _PyFloat(PyVector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
-		# Use the dtype from __new__ if available, otherwise default to non-nullable float
-		if dtype is None and '_inferred_dtype' not in self.__dict__:
-			dtype = DataType(float, nullable=False)
+		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 
 class _PyInt(PyVector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
-		# Use the dtype from __new__ if available, otherwise default to non-nullable int
-		if dtype is None and '_inferred_dtype' not in self.__dict__:
-			dtype = DataType(int, nullable=False)
+		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 
 class _PyString(PyVector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
-		# Use the dtype from __new__ if available, otherwise default to non-nullable str
-		if dtype is None and '_inferred_dtype' not in self.__dict__:
-			dtype = DataType(str, nullable=False)
+		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 	def capitalize(self):
@@ -1258,9 +1230,7 @@ class _PyString(PyVector):
 
 class _PyDate(PyVector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
-		# Use the dtype from __new__ if available, otherwise default to non-nullable date
-		if dtype is None and '_inferred_dtype' not in self.__dict__:
-			dtype = DataType(date, nullable=False)
+		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 	def _elementwise_compare(self, other, op):
