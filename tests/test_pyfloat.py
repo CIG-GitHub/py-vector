@@ -9,12 +9,12 @@ class TestFloatCreation:
     def test_auto_creates_pyfloat(self):
         v = PyVector([1.5, 2.5, 3.5])
         assert isinstance(v, _PyFloat)
-        assert v._dtype == float
+        assert v.schema().kind == float
     
     def test_mixed_int_float_creates_pyfloat(self):
         v = PyVector([1, 2.5, 3])
         assert isinstance(v, _PyFloat)
-        assert v._dtype == float
+        assert v.schema().kind == float
         assert list(v) == [1.0, 2.5, 3.0]
 
 
@@ -52,7 +52,7 @@ class TestFloatOperations:
         v = PyVector([1.0, 2.0, 3.0])
         result = v / 2
         assert isinstance(result, PyVector)
-        assert result._dtype == float
+        assert result.schema().kind == float
         assert list(result) == [0.5, 1.0, 1.5]
     
     def test_comparison_with_floats(self):

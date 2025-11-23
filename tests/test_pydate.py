@@ -10,7 +10,7 @@ class TestDateCreation:
     def test_auto_creates_pydate(self):
         v = PyVector([date(2025, 1, 1), date(2025, 1, 2)])
         assert isinstance(v, _PyDate)
-        assert v._dtype == date
+        assert v.schema().kind == date
 
 
 class TestDateMethods:

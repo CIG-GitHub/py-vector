@@ -40,7 +40,7 @@ class DataType:
     >>> DataType(int, nullable=True)
     DataType(kind=<class 'int'>, nullable=True)
     >>> DataType(float).promote_with(None)
-    DataType(kind=<class 'float'>, nullable=True)
+    <float?>
     """
 
     kind: Type[Any]
@@ -48,7 +48,7 @@ class DataType:
 
     def __repr__(self):
         if self.nullable:
-            return f"<{self.kind.__name__} nullable>"
+            return f"<{self.kind.__name__}?>"
         return f"<{self.kind.__name__}>"
 
     @property
@@ -200,7 +200,7 @@ def infer_dtype(values: Iterable[Any]) -> DataType:
     >>> infer_dtype([1, 2.5, 3])
     <float>
     >>> infer_dtype([1, None, 3])
-    <int nullable>
+    <int?>
     >>> infer_dtype([1, "hello"])
     <object>
     """

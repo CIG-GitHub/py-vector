@@ -9,7 +9,7 @@ class TestIntCreation:
     def test_auto_creates_pyint(self):
         v = PyVector([1, 2, 3])
         assert isinstance(v, _PyInt)
-        assert v._dtype == int
+        assert v.schema().kind == int
     
     def test_does_not_include_bool(self):
         # Bools should not create _PyInt
@@ -49,7 +49,7 @@ class TestIntOperations:
         v = PyVector([10, 21, 30])
         result = v // 3
         assert isinstance(result, PyVector)
-        assert v._dtype == int
+        assert v.schema().kind == int
         assert list(result) == [3, 7, 10]
     
     def test_modulo(self):

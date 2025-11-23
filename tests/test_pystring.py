@@ -9,7 +9,7 @@ class TestStringCreation:
     def test_auto_creates_pystring(self):
         v = PyVector(['hello', 'world'])
         assert isinstance(v, _PyString)
-        assert v._dtype == str
+        assert v.schema().kind == str
 
 
 class TestStringMethods:

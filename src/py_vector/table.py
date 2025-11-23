@@ -296,31 +296,31 @@ class PyTable(PyVector):
 			if isinstance(self._underlying[0], PyTable):
 				return self._underlying[key]
 			return PyVector(tuple(col[key] for col in self._underlying),
-				dtype = self.dtype
+				dtype = self._dtype
 			).T
 
-		if isinstance(key, PyVector) and key._dtype == bool and key._typesafe:
+		if isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable:
 			assert (len(self) == len(key))
 			return PyVector(tuple(x[key] for x in self._underlying),
-				dtype = self.dtype
+				dtype = self._dtype
 			)
 		if isinstance(key, list) and {type(e) for e in key} == {bool}:
 			assert (len(self) == len(key))
 			return PyVector(tuple(x[key] for x in self._underlying),
-				dtype = self.dtype
+				dtype = self._dtype
 			)
 		if isinstance(key, slice):
 			return PyVector(tuple(x[key] for x in self._underlying), 
-				dtype = self.dtype,
+				dtype = self._dtype,
 				name=self._name
 			)
 
 		# NOT RECOMMENDED
-		if isinstance(key, PyVector) and key._dtype == int and key._typesafe:
+		if isinstance(key, PyVector) and key.schema().kind == int and not key.schema().nullable:
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors; prefer slices or boolean masks')
 			return PyVector(tuple(x[key] for x in self._underlying),
-				dtype = self.dtype
+				dtype = self._dtype
 			)
 
 	def __iter__(self):
@@ -357,22 +357,26 @@ class PyTable(PyVector):
 	def __rshift__(self, other):
 		""" The >> operator behavior has been overridden to add the column(s) of other to self
 		"""
-		if self._dtype in (bool, int) and isinstance(other, int):
+		if self._dtype.kind in (bool, int) and isinstance(other, int):
 			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
 
 		if isinstance(other, PyTable):
-			if self._typesafe and other._typesafe and self._dtype != other._dtype:
+			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
 				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return PyVector(self.cols() + other.cols(),
-				dtype=self.dtype)
+				dtype=self._dtype)
 		if isinstance(other, PyVector):
 			# Adding a column to a table - tables can have mixed-type columns
 			return PyVector(self.cols() + (other,),
-				dtype=self.dtype)
+				dtype=self._dtype)
+		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+			# Convert iterable to PyVector and add as column (let PyVector infer dtype)
+			return PyVector(self.cols() + (PyVector(other),),
+				dtype=self._dtype)
 		elif not self:
 			return PyVector((other,),
-				dtype=self.dtype)
+				dtype=self._dtype)
 		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
 
 	def __lshift__(self, other):

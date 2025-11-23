@@ -16,7 +16,10 @@ class TestCreation:
     def test_creation_from_list(self, initial, expected_len, expected_dtype):
         v = PyVector(initial)
         assert len(v) == expected_len
-        assert v._dtype == expected_dtype
+        if expected_dtype is None:
+            assert v.schema() is None
+        else:
+            assert v.schema().kind == expected_dtype
         assert list(v) == initial
     
     def test_creation_empty(self):
@@ -29,9 +32,9 @@ class TestCreation:
         assert v._name == 'test_vector'
     
     def test_creation_typesafe(self):
-        v = PyVector([1, 2, 3], typesafe=True)
-        assert v._typesafe
-        assert v._dtype == int
+        v = PyVector([1, 2, 3], dtype=int)
+        assert not v.schema().nullable
+        assert v.schema().kind == int
 
 
 class TestIteration:
@@ -74,7 +77,7 @@ class TestCopy:
         v1 = PyVector([1, 2, 3])
         v2 = v1.copy(new_values=[10, 20, 30])
         assert list(v2) == [10, 20, 30]
-        assert v1._dtype == v2._dtype
+        assert v1.schema().kind == v2.schema().kind
     
     def test_copy_with_name(self):
         v1 = PyVector([1, 2, 3], name='original')
@@ -87,13 +90,13 @@ class TestTypePromotion:
     
     def test_int_to_float_promotion(self):
         v = PyVector([1, 2, 3.5])
-        assert v._dtype == float
+        assert v.schema().kind == float
         assert list(v) == [1.0, 2.0, 3.5]
     
     def test_no_promotion_with_dtype_int(self):
         # If dtype=int specified, should not promote to float
         v = PyVector([1, 2, 3], dtype=int)
-        assert v._dtype == int
+        assert v.schema().kind == int
 
 
 class TestBooleanBehavior:
