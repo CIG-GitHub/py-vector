@@ -400,10 +400,23 @@ class PyVector():
 		key = self._check_duplicate(key)
 		if isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable:
 			assert (len(self) == len(key))
-			return self.copy((x for x, y in zip(self, key, strict=True) if y), name=self._name)
+			a = self._underlying
+			b = key._underlying
+			n = len(a)
+			out = []
+			for i in range(n):
+				if b[i]:
+					out.append(a[i])
+			return self.copy(tuple(out), name=self._name)
 		if isinstance(key, list) and {type(e) for e in key} == {bool}:
 			assert (len(self) == len(key))
-			return self.copy((x for x, y in zip(self, key, strict=True) if y), name=self._name)
+			a = self._underlying
+			n = len(a)
+			out = []
+			for i in range(n):
+				if key[i]:
+					out.append(a[i])
+			return self.copy(tuple(out), name=self._name)
 		if isinstance(key, slice):
 			return self.copy(self._underlying[key], name=self._name)
 
@@ -538,11 +551,23 @@ class PyVector():
 		if isinstance(other, PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+			a = self._underlying
+			b = other._underlying
+			n = len(a)
+			out = [None] * n
+			for i in range(n):
+				out[i] = bool(op(a[i], b[i]))
+			return PyVector(tuple(out), dtype=DataType(bool))
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+			a = self._underlying
+			n = len(a)
+			other = tuple(other) if not isinstance(other, tuple) else other
+			out = [None] * n
+			for i in range(n):
+				out[i] = bool(op(a[i], other[i]))
+			return PyVector(tuple(out), dtype=DataType(bool))
 		return PyVector(tuple(bool(op(x, other)) for x in self), dtype=DataType(bool))
 
 	# Now, we can redefine the comparison methods using the helper function
@@ -593,14 +618,26 @@ class PyVector():
 			assert len(self) == len(other)
 			if not self._dtype.nullable:
 				other._promote(self._dtype.kind)
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)),
+			a = self._underlying
+			b = other._underlying
+			n = len(a)
+			out = [None] * n
+			for i in range(n):
+				out[i] = op_func(a[i], b[i])
+			return PyVector(tuple(out),
 							dtype=self._dtype,
 							name=None,
 							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			assert len(self) == len(other)
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
+			a = self._underlying
+			n = len(a)
+			other = tuple(other) if not isinstance(other, tuple) else other
+			out = [None] * n
+			for i in range(n):
+				out[i] = op_func(a[i], other[i])
+			return PyVector(tuple(out),
 				dtype=self._dtype,
 				name=None,
 				as_row=self._display_as_row
@@ -667,7 +704,13 @@ class PyVector():
 			assert len(self) == len(other)
 			if not self._dtype.nullable:
 				other._promote(self._dtype.kind)
-			return PyVector(tuple(y + x for x, y in zip(self, other, strict=True)),
+			a = self._underlying
+			b = other._underlying
+			n = len(a)
+			out = [None] * n
+			for i in range(n):
+				out[i] = b[i] + a[i]
+			return PyVector(tuple(out),
 							dtype=self._dtype,
 							name=None,
 							as_row=self._display_as_row)
@@ -680,7 +723,13 @@ class PyVector():
 
 		if hasattr(other, '__iter__'):
 			assert len(self) == len(other)
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
+			a = self._underlying
+			n = len(a)
+			other = tuple(other) if not isinstance(other, tuple) else other
+			out = [None] * n
+			for i in range(n):
+				out[i] = other[i] + a[i]
+			return PyVector(tuple(out),
 				dtype=self._dtype,
 				name=None,
 				as_row=self._display_as_row)
@@ -856,7 +905,13 @@ class PyVector():
 		other = self._check_duplicate(other)
 		if type(other).__name__ == 'PyTable':
 			return PyVector(tuple(self @ z for z in other.cols()))
-		return sum(x*y for x, y in zip(self._underlying, other._underlying, strict=True))
+		a = self._underlying
+		b = other._underlying
+		n = len(a)
+		total = 0
+		for i in range(n):
+			total += a[i] * b[i]
+		return total
 		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 		# PyVector(tuple(PyVector(tuple(sum((u*v for u, v in zip(x._underlying, y._underlying))) for y in q.cols())) for x in p))
 
@@ -865,7 +920,13 @@ class PyVector():
 		other = self._check_duplicate(other)
 		if len(self.size()) > 1:
 			return PyVector(tuple(x @ other for x in self.cols()))
-		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
+		a = self._underlying
+		n = len(a)
+		other = tuple(other) if not isinstance(other, tuple) else other
+		total = 0
+		for i in range(n):
+			total += a[i] * other[i]
+		return total
 		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
 
@@ -1233,14 +1294,32 @@ class _PyDate(PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
 			if other.schema().kind == str:
-				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+				a = self._underlying
+				b = other._underlying
+				n = len(a)
+				out = [None] * n
+				for i in range(n):
+					out[i] = bool(op(a[i], date.fromisoformat(b[i])))
+				return PyVector(tuple(out), dtype=DataType(bool))
 			if other.schema().kind == datetime:
-				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+				a = self._underlying
+				b = other._underlying
+				n = len(a)
+				out = [None] * n
+				for i in range(n):
+					out[i] = bool(op(datetime.combine(a[i], datetime.time(0, 0)), b[i]))
+				return PyVector(tuple(out), dtype=DataType(bool))
 		elif hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
 			# If it's not a PyVector or Constant, don't apply date compare logic
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+			a = self._underlying
+			n = len(a)
+			other = tuple(other) if not isinstance(other, tuple) else other
+			out = [None] * n
+			for i in range(n):
+				out[i] = bool(op(a[i], other[i]))
+			return PyVector(tuple(out), dtype=DataType(bool))
 		elif isinstance(other, str):
 			return PyVector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), dtype=DataType(bool))
 		elif isinstance(other, datetime):
@@ -1294,7 +1373,13 @@ class _PyDate(PyVector):
 	def __add__(self, other):
 		""" adding integers is adding days """
 		if isinstance(other, PyVector) and other.schema().kind == int:
-			return PyVector([date.fromordinal(s.toordinal() + y) for s, y in zip(self._underlying, other, strict=True)])
+			a = self._underlying
+			b = other._underlying
+			n = len(a)
+			out = [None] * n
+			for i in range(n):
+				out[i] = date.fromordinal(a[i].toordinal() + b[i])
+			return PyVector(out)
 		if isinstance(other, int):
 			return PyVector([date.fromordinal(s.toordinal() + other) for s in self._underlying])
 		return super().add(other)
