@@ -34,20 +34,20 @@ def _format_column(col, max_preview: int = MAX_HEAD_ROWS) -> List[str]:
 	for v in preview:
 		if v == '...':
 			out.append('...')
-		elif col._dtype is float:
+		elif col._dtype and col._dtype.kind is float:
 			out.append(f"{v:.1f}" if v == int(v) else f"{v:g}")
-		elif col._dtype is int:
+		elif col._dtype and col._dtype.kind is int:
 			out.append(str(v))
-		elif col._dtype is date:
+		elif col._dtype and col._dtype.kind is date:
 			out.append(v.isoformat())
-		elif col._dtype is str:
+		elif col._dtype and col._dtype.kind is str:
 			out.append(repr(v))
 		else:
 			out.append(str(v))
 
 	# Align: numeric right, others left
 	max_len = max(len(s) for s in out) if out else 0
-	if col._dtype in (int, float):
+	if col._dtype and col._dtype.kind in (int, float):
 		return [s.rjust(max_len) for s in out]
 	return [s.ljust(max_len) for s in out]
 
@@ -79,7 +79,7 @@ def _compute_headers(cols, col_indices, sanitize_func, uniquify_func):
 		sanitized_names.append(san)
 
 		# Dtype
-		dtypes.append(col._dtype.__name__ if col._dtype else "object")
+		dtypes.append(col._dtype.kind.__name__ if col._dtype else "object")
 
 	return display_names, sanitized_names, dtypes
 
@@ -153,7 +153,7 @@ def _footer(pv, dtype_list=None, truncated=False, shown=MAX_HEAD_COLS) -> str:
 		return "# empty"
 	
 	if len(shape) == 1:
-		dt = pv._dtype.__name__ if pv._dtype else "object"
+		dt = pv._dtype.kind.__name__ if pv._dtype else "object"
 		return f"# {len(pv)} element vector <{dt}>"
 	
 	if len(shape) == 2:
@@ -163,12 +163,12 @@ def _footer(pv, dtype_list=None, truncated=False, shown=MAX_HEAD_COLS) -> str:
 			else:
 				d = ", ".join(dtype_list)
 		else:
-			d = pv._dtype.__name__ if pv._dtype else "object"
+			d = pv._dtype.kind.__name__ if pv._dtype else "object"
 		rows, cols = shape
 		return f"# {rows}×{cols} table <{d}>"
 	
 	shape_str = "×".join(str(s) for s in shape)
-	dt = pv._dtype.__name__ if pv._dtype else "object"
+	dt = pv._dtype.kind.__name__ if pv._dtype else "object"
 	return f"# {shape_str} tensor <{dt}>"
 
 
@@ -186,7 +186,7 @@ def _repr_vector(v) -> str:
 	width = max(data_width, header_width)
 	
 	# Re-align data to match combined width
-	if v._dtype in (int, float):
+	if v._dtype and v._dtype.kind in (int, float):
 		formatted = [s.rjust(width) for s in formatted]
 	else:
 		formatted = [s.ljust(width) for s in formatted]
@@ -195,7 +195,7 @@ def _repr_vector(v) -> str:
 
 	# Optional vector name
 	if v._name:
-		lines.append(header_text.ljust(width) if v._dtype not in (int, float) else header_text.rjust(width))
+		lines.append(header_text.ljust(width) if not v._dtype or v._dtype.kind not in (int, float) else header_text.rjust(width))
 
 	lines.extend(formatted)
 	lines.append("")
@@ -226,7 +226,7 @@ def _repr_table(tbl) -> str:
 	)
 
 	# Get all dtypes for footer
-	dtypes_all = [col._dtype.__name__ if col._dtype else "object" for col in cols]
+	dtypes_all = [col._dtype.kind.__name__ if col._dtype else "object" for col in cols]
 
 	# Format columns
 	formatted_cols = [_format_column(cols[i]) for i in col_indices]
