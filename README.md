@@ -1,5 +1,6 @@
 # PyVector
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![Tests](https://github.com/CIG-GitHub/py-vector/actions/workflows/tests.yml/badge.svg)](https://github.com/CIG-GitHub/py-vector/actions/workflows/tests.yml)
 
 A clean, typed, composable data layer for Python, built on **PyVector** and **PyTable**.
 
