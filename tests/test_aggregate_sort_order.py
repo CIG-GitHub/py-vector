@@ -1,7 +1,7 @@
 """Test that aggregate preserves order of first appearance (stable sort behavior)."""
 import pytest
-from src.py_vector.vector import PyVector
-from src.py_vector.table import PyTable
+from py_vector.vector import PyVector
+from py_vector.table import PyTable
 
 
 class TestAggregateSortOrder:
