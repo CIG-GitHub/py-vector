@@ -153,7 +153,12 @@ def _footer(pv, dtype_list=None, truncated=False, shown=MAX_HEAD_COLS) -> str:
 		return "# empty"
 	
 	if len(shape) == 1:
-		dt = pv._dtype.kind.__name__ if pv._dtype else "object"
+		if pv._dtype:
+			dt = pv._dtype.kind.__name__
+			if pv._dtype.nullable:
+				dt += "?"
+		else:
+			dt = "object"
 		return f"# {len(pv)} element vector <{dt}>"
 	
 	if len(shape) == 2:
@@ -168,7 +173,12 @@ def _footer(pv, dtype_list=None, truncated=False, shown=MAX_HEAD_COLS) -> str:
 		return f"# {rows}×{cols} table <{d}>"
 	
 	shape_str = "×".join(str(s) for s in shape)
-	dt = pv._dtype.kind.__name__ if pv._dtype else "object"
+	if pv._dtype:
+		dt = pv._dtype.kind.__name__
+		if pv._dtype.nullable:
+			dt += "?"
+	else:
+		dt = "object"
 	return f"# {shape_str} tensor <{dt}>"
 
 
@@ -226,7 +236,15 @@ def _repr_table(tbl) -> str:
 	)
 
 	# Get all dtypes for footer
-	dtypes_all = [col._dtype.kind.__name__ if col._dtype else "object" for col in cols]
+	dtypes_all = []
+	for col in cols:
+		if col._dtype:
+			dtype_str = col._dtype.kind.__name__
+			if col._dtype.nullable:
+				dtype_str += "?"
+			dtypes_all.append(dtype_str)
+		else:
+			dtypes_all.append("object")
 
 	# Format columns
 	formatted_cols = [_format_column(cols[i]) for i in col_indices]
