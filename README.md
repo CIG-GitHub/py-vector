@@ -1,6 +1,7 @@
 # PyVector
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
+
 A clean, typed, composable data layer for Python, built on **PyVector** and **PyTable**.
 
 PyVector provides the foundation; PyTable is your primary tool for readable data modeling and analysis workflows.

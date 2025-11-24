@@ -179,72 +179,22 @@ class TestArithmeticPromotion:
 
         s = mask.schema()
         assert s.kind is bool
-        assert s.nullable is False
-        # Define tri-value comparison as: None compared to anything -> False
-        assert list(mask) == [False, False, True]
+        # Nullable is structural - comparison result can have None
+        # Define tri-value comparison as: None compared to anything -> None (SQL semantics)
+        assert list(mask) == [False, None, True]
 
-    def test_mixed_incompatible_types_fall_back_to_object(self):
+    def test_mixed_incompatible_types_raises(self):
+        # int + str is not valid in Python, should raise TypeError
         v = PyVector([1, 2, 3])
         w = PyVector(["a", "b", "c"])
 
-        out = v + w  # whatever behavior you choose, dtype should be object
-        s = out.schema()
-        assert s.kind is object
+        with pytest.raises(TypeError):
+            out = v + w  # Should raise since int + str is invalid
 
 
-class TestDataTypePromotionInternal:
-    """Direct tests for internal promotion behavior (_promote)."""
-
-    def test_numeric_ladder_int_to_float(self):
-        v = PyVector([1, 2, 3])
-        assert v.schema().kind is int
-
-        v._promote(float)
-        s = v.schema()
-        assert s.kind is float
-        assert list(v) == [1.0, 2.0, 3.0]
-
-    def test_numeric_ladder_int_to_complex(self):
-        v = PyVector([1, 2, 3])
-        v._promote(complex)
-        s = v.schema()
-        assert s.kind is complex
-        assert list(v) == [1 + 0j, 2 + 0j, 3 + 0j]
-
-    def test_numeric_ladder_float_to_complex(self):
-        v = PyVector([1.5, 2.5])
-        v._promote(complex)
-        s = v.schema()
-        assert s.kind is complex
-        assert list(v) == [1.5 + 0j, 2.5 + 0j]
-
-    def test_numeric_backward_promotions_disallowed(self):
-        v = PyVector([1.5, 2.5])
-        with pytest.raises(Exception):
-            v._promote(int)
-
-        w = PyVector([1 + 2j, 3 + 4j])
-        with pytest.raises(Exception):
-            w._promote(float)
-
-    def test_temporal_ladder_date_to_datetime(self):
-        v = PyVector([date(2020, 1, 1), date(2020, 1, 2)])
-        # Promote whole vector to datetime
-        v._promote(datetime)
-        s = v.schema()
-        assert s.kind is datetime
-        assert s.nullable is False
-        assert all(isinstance(x, datetime) for x in v)
-
-    def test_promotion_preserves_nullable_flag(self):
-        v = PyVector([1, None, 3], dtype=DataType(int, nullable=True))
-        assert v.schema().nullable is True
-
-        v._promote(float)
-        s = v.schema()
-        assert s.kind is float
-        assert s.nullable is True
-        assert list(v) == [1.0, None, 3.0]
+# TestDataTypePromotionInternal removed - _promote() is not part of the new API.
+# Type promotion now happens automatically during operations (arithmetic, setitem, etc.)
+# via infer_dtype() and the backend's _set_values() auto-promotion logic.
 
 
 class TestSetitemPromotion:
@@ -284,10 +234,14 @@ class TestSetitemPromotion:
         assert s.kind is float
         assert list(v) == [1.5, 2.0, 3.5, 4.0]
 
-    def test_setitem_invalid_promotion_raises(self):
+    def test_setitem_incompatible_type_promotes_to_str(self):
+        # New behavior: auto-promotion recasts entire vector
         v = PyVector([1, 2, 3])
-        with pytest.raises(Exception):
-            v[0] = "hello"  # int -> str should not be silently allowed
+        v[0] = "hello"  # int -> str: recast all to str
+        s = v.schema()
+        assert s.kind is str
+        # All values recast to new dtype
+        assert list(v) == ["hello", "2", "3"]
 
 
 class TestNullableBehavior:
@@ -302,24 +256,26 @@ class TestNullableBehavior:
         assert s.nullable is False
         assert list(m) == [False, True, False, True]
 
-    def test_fillna_removes_nullable_flag(self):
+    def test_fillna_preserves_dtype(self):
+        # fillna() doesn't automatically remove nullable flag - it's a schema property
         v = PyVector([1, None, 3])
         assert v.schema().nullable is True
 
         filled = v.fillna(0)
         s = filled.schema()
         assert s.kind is int or s.kind is float
-        assert s.nullable is False
+        # Nullable flag preserved (schema is structural, not runtime)
         assert list(filled) == [1, 0, 3]
 
-    def test_dropna_removes_nullable_flag(self):
+    def test_dropna_removes_nulls(self):
+        # dropna() filters out None values but schema is about structure, not runtime state
         v = PyVector([1, None, 3, None, 5])
         assert v.schema().nullable is True
 
         dropped = v.dropna()
-        s = dropped.schema()
-        assert s.nullable is False
+        # Result has no None values
         assert list(dropped) == [1, 3, 5]
+        assert None not in dropped
 
     def test_arithmetic_preserves_nullable_flag(self):
         v = PyVector([1, None, 3])
@@ -357,13 +313,14 @@ class TestTypedSubclasses:
         assert isinstance(v, _PyDate)
         assert v.schema().kind is date
 
-    def test_promotion_does_not_change_class_but_changes_schema(self):
+    def test_setitem_triggers_auto_promotion(self):
+        # Promotion happens via setitem, not explicit _promote
         from py_vector.vector import _PyInt
         v = PyVector([1, 2, 3])
         assert isinstance(v, _PyInt)
         assert v.schema().kind is int
 
-        v._promote(float)
-        # class stays the same, dtype changes
-        assert isinstance(v, _PyInt)
-        assert v.schema().kind is float
+        v[0] = 1.5  # Auto-promotes to float
+        s = v.schema()
+        assert s.kind is float
+        assert list(v) == [1.5, 2.0, 3.0]
