@@ -1,20 +1,50 @@
 import operator
 import warnings
 import re
+import math
 
 from .alias_tracker import _ALIAS_TRACKER, AliasError
-from .errors import PyVectorTypeError, PyVectorIndexError, PyVectorValueError, PyVectorKeyError
+from .errors import PyVectorTypeError
+from .errors import PyVectorIndexError
+from .errors import PyVectorValueError
+from .errors import PyVectorKeyError
 from .display import _printr
-from .naming import _sanitize_user_name, _uniquify
-from .typing import (
-	DataType,
-	infer_dtype,
-	validate_scalar,
-)
+from .naming import _sanitize_user_name
+from .naming import _uniquify
+from .typing import DataType
+from .typing import infer_dtype
+from .typing import validate_scalar
+
 from copy import deepcopy
 from datetime import date
 from datetime import datetime
 from .typeutils import slice_length
+
+from typing import Any
+from typing import Iterable
+from typing import List
+from typing import Tuple
+
+# ============================================================
+# Small helpers
+# ============================================================
+
+def _is_hashable(x: Any) -> bool:
+    try:
+        hash(x)
+        return True
+    except Exception:
+        return False
+
+
+def _safe_sortable_list(xs: Iterable[Any]) -> List[Any]:
+    """
+    Deterministic representation for sets in fingerprinting.
+    """
+    try:
+        return sorted(xs)
+    except Exception:
+        return sorted((repr(x) for x in xs))
 
 
 class MethodProxy:
@@ -28,6 +58,9 @@ class MethodProxy:
 		return PyVector(tuple(getattr(elem, self._method_name)(*args, **kwargs) 
 		                for elem in self._vector._underlying))
 
+# ============================================================
+# Main backend
+# ============================================================
 
 class PyVector():
 	""" Iterable vector with optional type safety """
@@ -39,9 +72,6 @@ class PyVector():
 	# Fingerprint constants for O(1) change detection
 	_FP_P = (1 << 61) - 1  # Mersenne prime (2^61 - 1)
 	_FP_B = 1315423911     # Base for rolling hash
-	_HASH_MASK = (1 << 61) - 1  # Mask for internal element hashes
-	_NAN_HASH = 0x9E3779B185  # Golden ratio constant for NaN
-	_NONE_HASH = 0x345678  # Constant for None
 
 	def schema(self):
 		"""Get the DataType schema of this vector."""
@@ -126,109 +156,12 @@ class PyVector():
 		# Convert initial to tuple
 		self._underlying = tuple(initial)
 		
-		# Initialize fingerprint for O(1) change detection
-		self._fp = self._compute_fp(self._underlying)
-		self._fp_powers = [1]
-		for _ in range(len(self._underlying)):
-			self._fp_powers.append((self._fp_powers[-1] * self._FP_B) % self._FP_P)
+		# Fingerprint cache + powers
+		self._fp: int | None = None
+		self._fp_powers: List[int] | None = None
 		
 		# Register with alias tracker after full initialization
 		_ALIAS_TRACKER.register(self, id(self._underlying))
-
-	@staticmethod
-	def _hash_element(x):
-		"""
-		Convert an arbitrary Python object into an integer for fingerprinting.
-		
-		Rules (in order):
-		- If it has `_fp`, use that (nested PyVector/PyTable)
-		- None -> dedicated constant
-		- Floats: normalize NaN and -0.0
-		- Primitive scalars (int, bool, str, bytes): use hash()
-		- Sets: sorted iteration for deterministic ordering
-		- Tuples/other iterables: recursive hashing without tuple() allocation
-		- Fallback: hash(repr(x)) or id(x)
-		"""
-		import math
-		from collections.abc import Iterable as IterableABC
-		
-		# Nested PyVector/PyTable
-		if hasattr(x, '_fp'):
-			return x._fp
-		
-		# None
-		if x is None:
-			return PyVector._NONE_HASH
-		
-		# Float normalization
-		if isinstance(x, float):
-			if math.isnan(x):
-				return PyVector._NAN_HASH
-			if x == 0.0:
-				return 0  # Collapse 0.0 and -0.0
-			return hash(x)
-		
-		# Primitive scalars
-		if isinstance(x, (int, bool, str, bytes)):
-			return hash(x)
-		
-		# Complex numbers
-		if isinstance(x, complex):
-			real_h = PyVector._hash_element(x.real)
-			imag_h = PyVector._hash_element(x.imag)
-			return (real_h * 1315423911 + imag_h) & PyVector._HASH_MASK
-		
-		# DateTime types (before generic iterables)
-		if isinstance(x, datetime):
-			return hash(x.isoformat())
-		if isinstance(x, date):
-			return hash(x.isoformat())
-		
-		# Sets: unordered → sort for deterministic hashing
-		if isinstance(x, set):
-			h = 0
-			B_mix = 1315423911
-			try:
-				for item in sorted(x):
-					h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
-			except TypeError:
-				# Elements not comparable, use unsorted
-				for item in x:
-					h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
-			return h
-		
-		# Tuples: structural iterables
-		if isinstance(x, tuple):
-			h = 0
-			B_mix = 1315423911
-			for item in x:
-				h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
-			return h
-		
-		# Other iterables (lists, custom containers)
-		if isinstance(x, IterableABC):
-			h = 0
-			B_mix = 1315423911
-			for item in x:
-				h = (h * B_mix + PyVector._hash_element(item)) & PyVector._HASH_MASK
-			return h
-		
-		# Fallback: use repr
-		try:
-			return hash(repr(x))
-		except Exception:
-			return id(x)
-	
-	@staticmethod
-	def _compute_fp(data):
-		"""Compute fingerprint from data (O(n) rolling hash)"""
-		P = PyVector._FP_P
-		B = PyVector._FP_B
-		fp = 0
-		for x in data:
-			h = PyVector._hash_element(x)
-			fp = (fp * B + h) % P
-		return fp
 
 
 	def size(self):
@@ -236,56 +169,71 @@ class PyVector():
 			return tuple()
 		return (len(self),)
 
-	def fingerprint(self):
-		"""
-		Get current fingerprint for change detection.
-		For nested structures, recursively uses child fingerprints.
-		Returns an integer hash that changes when the vector is modified.
-		"""
-		if self.ndims() == 1:
-			# Simple vector: return stored fingerprint (O(1))
-			return self._fp
+	# --------------------------------------------------------
+	# Fingerprinting
+	# --------------------------------------------------------
+
+	@staticmethod
+	def _hash_element(x: Any) -> int:
+		P = PyVector._FP_P
+		B = PyVector._FP_B
+
+		if x is None:
+			return 0x9E3779B97F4A7C15
 		
-		# Table/nested: combine column fingerprints via rolling hash
+		if hasattr(x, "fingerprint") and callable(getattr(x, "fingerprint")):
+			return int(x.fingerprint())
+
+		if isinstance(x, float):
+			if math.isnan(x):
+				return 0xDEADBEEFCAFEBABE
+			return hash(x)
+
+		if isinstance(x, set):
+			rep = _safe_sortable_list(list(x))
+			return PyVector._hash_element(tuple(rep))
+
+		if isinstance(x, (list, tuple)):
+			h = 0
+			for elem in x:
+				h = (h * B + PyVector._hash_element(elem)) % P
+			return h
+
+		if _is_hashable(x):
+			return hash(x)
+
+		return hash(repr(x))
+
+	def _ensure_fp_powers(self) -> None:
+		n = len(self._underlying)
+		if n == 0:
+			self._fp_powers = []
+			return
 		P = self._FP_P
 		B = self._FP_B
-		fp = 0
-		for col in self.cols():
-			h = col.fingerprint()
-			fp = (fp * B + h) % P
-		return fp
+		pw = [1] * n
+		for i in range(n - 2, -1, -1):
+			pw[i] = (pw[i + 1] * B) % P
+		self._fp_powers = pw
 
-	def _update_fp_single(self, idx, old, new):
-		"""O(1) update fingerprint when replacing element at index idx"""
+	def _compute_fingerprint_full(self) -> int:
 		P = self._FP_P
-		
-		old_hash = PyVector._hash_element(old)
-		new_hash = PyVector._hash_element(new)
-		
-		# Position weight for this index
-		pos = len(self) - idx - 1
-		position_weight = self._fp_powers[pos]
-		
-		diff = (new_hash - old_hash) * position_weight
-		self._fp = (self._fp + diff) % P
+		B = self._FP_B
+		total = 0
+		for x in self._underlying:
+			h = self._hash_element(x)
+			total = (total * B + h) % P
+		return total
 
-	def _fp_update_multi(self, updates):
-		"""O(k) fingerprint update for k changes. updates = list of (index, old_value, new_value)"""
-		P = self._FP_P
-		fp = self._fp
-		
-		n = len(self)
-		for idx, old_v, new_v in updates:
-			old_h = PyVector._hash_element(old_v)
-			new_h = PyVector._hash_element(new_v)
-			
-			pos = n - 1 - idx
-			position_weight = self._fp_powers[pos]
-			
-			diff = (new_h - old_h) * position_weight
-			fp = (fp + diff) % P
-		
-		self._fp = fp
+	def fingerprint(self) -> int:
+		if self._fp is None:
+			if self._fp_powers is None or len(self._fp_powers) != len(self._underlying):
+				self._ensure_fp_powers()
+			self._fp = self._compute_fingerprint_full()
+		return self._fp
+
+	def _invalidate_fp(self) -> None:
+		self._fp = None
 
 	@classmethod
 	def new(cls, default_element, length, typesafe=False):
@@ -671,22 +619,18 @@ class PyVector():
 		# MUTATE — copy-on-write + fingerprint updates
 		# =====================================================================
 		data_list = list(underlying)           # COW materialization
-		fp_updates = []                        # (idx, old_val, new_val)
 
 		for idx, new_val in updates:
 			old_val = data_list[idx]
 			data_list[idx] = new_val
-			fp_updates.append((idx, old_val, new_val))
 
 		new_tuple = tuple(data_list)
 		old_id = id(underlying)
 
 		_alias.unregister(self, old_id)
 		self._underlying = new_tuple
+		self._invalidate_fp()
 		_alias.register(self, id(new_tuple))
-
-		# incremental fingerprint update
-		self._fp_update_multi(fp_updates)
 
 
 
@@ -1197,7 +1141,7 @@ class PyVector():
 			return MethodProxy(self, name)
 		else:
 			# It's a property/descriptor (like .year) -> Compute immediately
-			return PyVector([getattr(x, name) for x in self._underlying])
+			return PyVector(tuple(getattr(x, name) for x in self._underlying))
 
 class _PyFloat(PyVector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
@@ -1218,191 +1162,191 @@ class _PyString(PyVector):
 
 	def capitalize(self):
 		""" Call the internal capitalize method on string """
-		return PyVector([s.capitalize() for s in self._underlying])
+		return PyVector(tuple(s.capitalize() for s in self._underlying))
 
 	def casefold(self):
 		""" Call the internal casefold method on string """
-		return PyVector([s.casefold() for s in self._underlying])
+		return PyVector(tuple(s.casefold() for s in self._underlying))
 
 	def center(self, *args, **kwargs):
 		""" Call the internal center method on string """
-		return PyVector([s.center(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.center(*args, **kwargs) for s in self._underlying))
 
 	def count(self, *args, **kwargs):
 		""" Call the internal count method on string """
-		return PyVector([s.count(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.count(*args, **kwargs) for s in self._underlying))
 
 	def encode(self, *args, **kwargs):
 		""" Call the internal encode method on string """
-		return PyVector([s.encode(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.encode(*args, **kwargs) for s in self._underlying))
 
 	def endswith(self, *args, **kwargs):
 		""" Call the internal endswith method on string """
-		return PyVector([s.endswith(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.endswith(*args, **kwargs) for s in self._underlying))
 
 	def expandtabs(self, *args, **kwargs):
 		""" Call the internal expandtabs method on string """
-		return PyVector([s.expandtabs(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.expandtabs(*args, **kwargs) for s in self._underlying))
 
 	def find(self, *args, **kwargs):
 		""" Call the internal find method on string """
-		return PyVector([s.find(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.find(*args, **kwargs) for s in self._underlying))
 
 	def format(self, *args, **kwargs):
 		""" Call the internal format method on string """
-		return PyVector([s.format(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.format(*args, **kwargs) for s in self._underlying))
 
 	def format_map(self, *args, **kwargs):
 		""" Call the internal format_map method on string """
-		return PyVector([s.format_map(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.format_map(*args, **kwargs) for s in self._underlying))
 
 	def index(self, *args, **kwargs):
 		""" Call the internal index method on string """
-		return PyVector([s.index(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.index(*args, **kwargs) for s in self._underlying))
 
 	def isalnum(self, *args, **kwargs):
 		""" Call the internal isalnum method on string """
-		return PyVector([s.isalnum(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isalnum(*args, **kwargs) for s in self._underlying))
 
 	def isalpha(self, *args, **kwargs):
 		""" Call the internal isalpha method on string """
-		return PyVector([s.isalpha(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isalpha(*args, **kwargs) for s in self._underlying))
 
 	def isascii(self, *args, **kwargs):
 		""" Call the internal isascii method on string """
-		return PyVector([s.isascii(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isascii(*args, **kwargs) for s in self._underlying))
 
 	def isdecimal(self, *args, **kwargs):
 		""" Call the internal isdecimal method on string """
-		return PyVector([s.isdecimal(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isdecimal(*args, **kwargs) for s in self._underlying))
 
 	def isdigit(self, *args, **kwargs):
 		""" Call the internal isdigit method on string """
-		return PyVector([s.isdigit(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isdigit(*args, **kwargs) for s in self._underlying))
 
 	def isidentifier(self, *args, **kwargs):
 		""" Call the internal isidentifier method on string """
-		return PyVector([s.isidentifier(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isidentifier(*args, **kwargs) for s in self._underlying))
 
 	def islower(self, *args, **kwargs):
 		""" Call the internal islower method on string """
-		return PyVector([s.islower(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.islower(*args, **kwargs) for s in self._underlying))
 
 	def isnumeric(self, *args, **kwargs):
 		""" Call the internal isnumeric method on string """
-		return PyVector([s.isnumeric(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isnumeric(*args, **kwargs) for s in self._underlying))
 
 	def isprintable(self, *args, **kwargs):
 		""" Call the internal isprintable method on string """
-		return PyVector([s.isprintable(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isprintable(*args, **kwargs) for s in self._underlying))
 
 	def isspace(self, *args, **kwargs):
 		""" Call the internal isspace method on string """
-		return PyVector([s.isspace(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isspace(*args, **kwargs) for s in self._underlying))
 
 	def istitle(self, *args, **kwargs):
 		""" Call the internal istitle method on string """
-		return PyVector([s.istitle(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.istitle(*args, **kwargs) for s in self._underlying))
 
 	def isupper(self, *args, **kwargs):
 		""" Call the internal isupper method on string """
-		return PyVector([s.isupper(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isupper(*args, **kwargs) for s in self._underlying))
 
 	def join(self, *args, **kwargs):
 		""" Call the internal join method on string """
-		return PyVector([s.join(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.join(*args, **kwargs) for s in self._underlying))
 
 	def ljust(self, *args, **kwargs):
 		""" Call the internal ljust method on string """
-		return PyVector([s.ljust(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.ljust(*args, **kwargs) for s in self._underlying))
 
 	def lower(self, *args, **kwargs):
 		""" Call the internal lower method on string """
-		return PyVector([s.lower(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.lower(*args, **kwargs) for s in self._underlying))
 
 	def lstrip(self, *args, **kwargs):
 		""" Call the internal lstrip method on string """
-		return PyVector([s.lstrip(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.lstrip(*args, **kwargs) for s in self._underlying))
 
 	def maketrans(self, *args, **kwargs):
 		""" Call the internal maketrans method on string """
-		return PyVector([s.maketrans(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.maketrans(*args, **kwargs) for s in self._underlying))
 
 	def partition(self, *args, **kwargs):
 		""" Call the internal partition method on string """
-		return PyVector([s.partition(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.partition(*args, **kwargs) for s in self._underlying))
 
 	def removeprefix(self, *args, **kwargs):
 		""" Call the internal removeprefix method on string """
-		return PyVector([s.removeprefix(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.removeprefix(*args, **kwargs) for s in self._underlying))
 
 	def removesuffix(self, *args, **kwargs):
 		""" Call the internal removesuffix method on string """
-		return PyVector([s.removesuffix(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.removesuffix(*args, **kwargs) for s in self._underlying))
 
 	def replace(self, *args, **kwargs):
 		""" Call the internal replace method on string """
-		return PyVector([s.replace(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.replace(*args, **kwargs) for s in self._underlying))
 
 	def rfind(self, *args, **kwargs):
 		""" Call the internal rfind method on string """
-		return PyVector([s.rfind(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.rfind(*args, **kwargs) for s in self._underlying))
 
 	def rindex(self, *args, **kwargs):
 		""" Call the internal rindex method on string """
-		return PyVector([s.rindex(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.rindex(*args, **kwargs) for s in self._underlying))
 
 	def rjust(self, *args, **kwargs):
 		""" Call the internal rjust method on string """
-		return PyVector([s.rjust(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.rjust(*args, **kwargs) for s in self._underlying))
 
 	def rpartition(self, *args, **kwargs):
 		""" Call the internal rpartition method on string """
-		return PyVector([s.rpartition(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.rpartition(*args, **kwargs) for s in self._underlying))
 
 	def rsplit(self, *args, **kwargs):
 		""" Call the internal rsplit method on string """
-		return PyVector([s.rsplit(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.rsplit(*args, **kwargs) for s in self._underlying))
 
 	def rstrip(self, *args, **kwargs):
 		""" Call the internal rstrip method on string """
-		return PyVector([s.rstrip(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.rstrip(*args, **kwargs) for s in self._underlying))
 
 	def split(self, *args, **kwargs):
 		""" Call the internal split method on string """
-		return PyVector([s.split(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.split(*args, **kwargs) for s in self._underlying))
 
 	def splitlines(self, *args, **kwargs):
 		""" Call the internal splitlines method on string """
-		return PyVector([s.splitlines(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.splitlines(*args, **kwargs) for s in self._underlying))
 
 	def startswith(self, *args, **kwargs):
 		""" Call the internal startswith method on string """
-		return PyVector([s.startswith(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.startswith(*args, **kwargs) for s in self._underlying))
 
 	def strip(self, *args, **kwargs):
 		""" Call the internal strip method on string """
-		return PyVector([s.strip(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.strip(*args, **kwargs) for s in self._underlying))
 
 	def swapcase(self, *args, **kwargs):
 		""" Call the internal swapcase method on string """
-		return PyVector([s.swapcase(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.swapcase(*args, **kwargs) for s in self._underlying))
 
 	def title(self, *args, **kwargs):
 		""" Call the internal title method on string """
-		return PyVector([s.title(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.title(*args, **kwargs) for s in self._underlying))
 
 	def translate(self, *args, **kwargs):
 		""" Call the internal translate method on string """
-		return PyVector([s.translate(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.translate(*args, **kwargs) for s in self._underlying))
 
 	def upper(self, *args, **kwargs):
 		""" Call the internal upper method on string """
-		return PyVector([s.upper(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.upper(*args, **kwargs) for s in self._underlying))
 
 	def zfill(self, *args, **kwargs):
 		""" Call the internal zfill method on string """
-		return PyVector([s.zfill(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.zfill(*args, **kwargs) for s in self._underlying))
 
 	def before(self, sep):
 		"""Return the part of each string before the first occurrence of sep."""
@@ -1449,53 +1393,53 @@ class _PyDate(PyVector):
 
 
 	def ctime(self, *args, **kwargs):
-		return PyVector([s.ctime(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.ctime(*args, **kwargs) for s in self._underlying))
 
 	def fromisocalendar(self, *args, **kwargs):
-		return PyVector([s.fromisocalendar(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.fromisocalendar(*args, **kwargs) for s in self._underlying))
 
 	def fromisoformat(self, *args, **kwargs):
-		return PyVector([s.fromisoformat(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.fromisoformat(*args, **kwargs) for s in self._underlying))
 
 	def fromordinal(self, *args, **kwargs):
-		return PyVector([s.fromordinal(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.fromordinal(*args, **kwargs) for s in self._underlying))
 
 	def fromtimestamp(self, *args, **kwargs):
-		return PyVector([s.fromtimestamp(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.fromtimestamp(*args, **kwargs) for s in self._underlying))
 
 	def isocalendar(self, *args, **kwargs):
-		return PyVector([s.isocalendar(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isocalendar(*args, **kwargs) for s in self._underlying))
 
 	def isoformat(self, *args, **kwargs):
-		return PyVector([s.isoformat(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isoformat(*args, **kwargs) for s in self._underlying))
 
 	def isoweekday(self, *args, **kwargs):
-		return PyVector([s.isoweekday(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.isoweekday(*args, **kwargs) for s in self._underlying))
 
 	def replace(self, *args, **kwargs):
-		return PyVector([s.replace(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.replace(*args, **kwargs) for s in self._underlying))
 
 	def strftime(self, *args, **kwargs):
-		return PyVector([s.strftime(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.strftime(*args, **kwargs) for s in self._underlying))
 
 	def timetuple(self, *args, **kwargs):
-		return PyVector([s.timetuple(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.timetuple(*args, **kwargs) for s in self._underlying))
 
 	def today(self, *args, **kwargs):
-		return PyVector([s.today(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.today(*args, **kwargs) for s in self._underlying))
 
 	def toordinal(self, *args, **kwargs):
-		return PyVector([s.toordinal(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.toordinal(*args, **kwargs) for s in self._underlying))
 
 	def weekday(self, *args, **kwargs):
-		return PyVector([s.weekday(*args, **kwargs) for s in self._underlying])
+		return PyVector(tuple(s.weekday(*args, **kwargs) for s in self._underlying))
 
 	def __add__(self, other):
 		""" adding integers is adding days """
 		if isinstance(other, PyVector) and other.schema().kind == int:
-			return PyVector([date.fromordinal(s.toordinal() + y) for s, y in zip(self._underlying, other, strict=True)])
+			return PyVector(tuple(date.fromordinal(s.toordinal() + y) for s, y in zip(self._underlying, other, strict=True)))
 		if isinstance(other, int):
-			return PyVector([date.fromordinal(s.toordinal() + other) for s in self._underlying])
+			return PyVector(tuple(date.fromordinal(s.toordinal() + other) for s in self._underlying))
 		return super().add(other)
 
 	def eomonth(self):
