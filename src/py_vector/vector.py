@@ -131,7 +131,6 @@ class PyVector():
 		return instance
 
 
-
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		"""
 		Initialize a new PyVector instance.
@@ -1162,207 +1161,207 @@ class _PyString(PyVector):
 
 	def capitalize(self):
 		""" Call the internal capitalize method on string """
-		return PyVector(tuple(s.capitalize() for s in self._underlying))
+		return PyVector(tuple((s.capitalize() if s is not None else None) for s in self._underlying))
 
 	def casefold(self):
 		""" Call the internal casefold method on string """
-		return PyVector(tuple(s.casefold() for s in self._underlying))
+		return PyVector(tuple((s.casefold() if s is not None else None) for s in self._underlying))
 
 	def center(self, *args, **kwargs):
 		""" Call the internal center method on string """
-		return PyVector(tuple(s.center(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.center(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def count(self, *args, **kwargs):
 		""" Call the internal count method on string """
-		return PyVector(tuple(s.count(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.count(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def encode(self, *args, **kwargs):
 		""" Call the internal encode method on string """
-		return PyVector(tuple(s.encode(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.encode(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def endswith(self, *args, **kwargs):
 		""" Call the internal endswith method on string """
-		return PyVector(tuple(s.endswith(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.endswith(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def expandtabs(self, *args, **kwargs):
 		""" Call the internal expandtabs method on string """
-		return PyVector(tuple(s.expandtabs(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.expandtabs(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def find(self, *args, **kwargs):
 		""" Call the internal find method on string """
-		return PyVector(tuple(s.find(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.find(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def format(self, *args, **kwargs):
 		""" Call the internal format method on string """
-		return PyVector(tuple(s.format(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.format(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def format_map(self, *args, **kwargs):
 		""" Call the internal format_map method on string """
-		return PyVector(tuple(s.format_map(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.format_map(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def index(self, *args, **kwargs):
 		""" Call the internal index method on string """
-		return PyVector(tuple(s.index(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.index(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isalnum(self, *args, **kwargs):
 		""" Call the internal isalnum method on string """
-		return PyVector(tuple(s.isalnum(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isalnum(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isalpha(self, *args, **kwargs):
 		""" Call the internal isalpha method on string """
-		return PyVector(tuple(s.isalpha(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isalpha(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isascii(self, *args, **kwargs):
 		""" Call the internal isascii method on string """
-		return PyVector(tuple(s.isascii(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isascii(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isdecimal(self, *args, **kwargs):
 		""" Call the internal isdecimal method on string """
-		return PyVector(tuple(s.isdecimal(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isdecimal(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isdigit(self, *args, **kwargs):
 		""" Call the internal isdigit method on string """
-		return PyVector(tuple(s.isdigit(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isdigit(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isidentifier(self, *args, **kwargs):
 		""" Call the internal isidentifier method on string """
-		return PyVector(tuple(s.isidentifier(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isidentifier(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def islower(self, *args, **kwargs):
 		""" Call the internal islower method on string """
-		return PyVector(tuple(s.islower(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.islower(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isnumeric(self, *args, **kwargs):
 		""" Call the internal isnumeric method on string """
-		return PyVector(tuple(s.isnumeric(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isnumeric(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isprintable(self, *args, **kwargs):
 		""" Call the internal isprintable method on string """
-		return PyVector(tuple(s.isprintable(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isprintable(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isspace(self, *args, **kwargs):
 		""" Call the internal isspace method on string """
-		return PyVector(tuple(s.isspace(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isspace(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def istitle(self, *args, **kwargs):
 		""" Call the internal istitle method on string """
-		return PyVector(tuple(s.istitle(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.istitle(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isupper(self, *args, **kwargs):
 		""" Call the internal isupper method on string """
-		return PyVector(tuple(s.isupper(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isupper(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def join(self, *args, **kwargs):
 		""" Call the internal join method on string """
-		return PyVector(tuple(s.join(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.join(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def ljust(self, *args, **kwargs):
 		""" Call the internal ljust method on string """
-		return PyVector(tuple(s.ljust(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.ljust(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def lower(self, *args, **kwargs):
 		""" Call the internal lower method on string """
-		return PyVector(tuple(s.lower(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.lower(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def lstrip(self, *args, **kwargs):
 		""" Call the internal lstrip method on string """
-		return PyVector(tuple(s.lstrip(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.lstrip(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def maketrans(self, *args, **kwargs):
 		""" Call the internal maketrans method on string """
-		return PyVector(tuple(s.maketrans(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.maketrans(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def partition(self, *args, **kwargs):
 		""" Call the internal partition method on string """
-		return PyVector(tuple(s.partition(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.partition(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def removeprefix(self, *args, **kwargs):
 		""" Call the internal removeprefix method on string """
-		return PyVector(tuple(s.removeprefix(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.removeprefix(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def removesuffix(self, *args, **kwargs):
 		""" Call the internal removesuffix method on string """
-		return PyVector(tuple(s.removesuffix(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.removesuffix(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def replace(self, *args, **kwargs):
 		""" Call the internal replace method on string """
-		return PyVector(tuple(s.replace(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.replace(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rfind(self, *args, **kwargs):
 		""" Call the internal rfind method on string """
-		return PyVector(tuple(s.rfind(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.rfind(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rindex(self, *args, **kwargs):
 		""" Call the internal rindex method on string """
-		return PyVector(tuple(s.rindex(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.rindex(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rjust(self, *args, **kwargs):
 		""" Call the internal rjust method on string """
-		return PyVector(tuple(s.rjust(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.rjust(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rpartition(self, *args, **kwargs):
 		""" Call the internal rpartition method on string """
-		return PyVector(tuple(s.rpartition(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.rpartition(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rsplit(self, *args, **kwargs):
 		""" Call the internal rsplit method on string """
-		return PyVector(tuple(s.rsplit(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.rsplit(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rstrip(self, *args, **kwargs):
 		""" Call the internal rstrip method on string """
-		return PyVector(tuple(s.rstrip(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.rstrip(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def split(self, *args, **kwargs):
 		""" Call the internal split method on string """
-		return PyVector(tuple(s.split(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.split(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def splitlines(self, *args, **kwargs):
 		""" Call the internal splitlines method on string """
-		return PyVector(tuple(s.splitlines(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.splitlines(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def startswith(self, *args, **kwargs):
 		""" Call the internal startswith method on string """
-		return PyVector(tuple(s.startswith(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.startswith(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def strip(self, *args, **kwargs):
 		""" Call the internal strip method on string """
-		return PyVector(tuple(s.strip(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.strip(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def swapcase(self, *args, **kwargs):
 		""" Call the internal swapcase method on string """
-		return PyVector(tuple(s.swapcase(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.swapcase(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def title(self, *args, **kwargs):
 		""" Call the internal title method on string """
-		return PyVector(tuple(s.title(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.title(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def translate(self, *args, **kwargs):
 		""" Call the internal translate method on string """
-		return PyVector(tuple(s.translate(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.translate(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def upper(self, *args, **kwargs):
 		""" Call the internal upper method on string """
-		return PyVector(tuple(s.upper(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.upper(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def zfill(self, *args, **kwargs):
 		""" Call the internal zfill method on string """
-		return PyVector(tuple(s.zfill(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.zfill(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def before(self, sep):
 		"""Return the part of each string before the first occurrence of sep."""
-		return PyVector([s.partition(sep)[0] for s in self._underlying])
+		return PyVector(tuple((s.partition(sep)[0] if s is not None else None) for s in self._underlying))
 
 	def after(self, sep):
 		"""Return the part of each string after the first occurrence of sep."""
-		return PyVector([s.partition(sep)[2] for s in self._underlying])
+		return PyVector(tuple((s.partition(sep)[2] if s is not None else None) for s in self._underlying))
 
 	def before_last(self, sep):
 		"""Return the part of each string before the last occurrence of sep."""
-		return PyVector([s.rpartition(sep)[0] for s in self._underlying])
+		return PyVector(tuple((s.rpartition(sep)[0] if s is not None else None) for s in self._underlying))
 
 	def after_last(self, sep):
 		"""Return the part of each string after the last occurrence of sep."""
-		return PyVector([s.rpartition(sep)[2] for s in self._underlying])
+		return PyVector(tuple((s.rpartition(sep)[2] if s is not None else None) for s in self._underlying))
 
 
 class _PyDate(PyVector):
@@ -1393,53 +1392,53 @@ class _PyDate(PyVector):
 
 
 	def ctime(self, *args, **kwargs):
-		return PyVector(tuple(s.ctime(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.ctime(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromisocalendar(self, *args, **kwargs):
-		return PyVector(tuple(s.fromisocalendar(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.fromisocalendar(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromisoformat(self, *args, **kwargs):
-		return PyVector(tuple(s.fromisoformat(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.fromisoformat(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromordinal(self, *args, **kwargs):
-		return PyVector(tuple(s.fromordinal(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.fromordinal(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromtimestamp(self, *args, **kwargs):
-		return PyVector(tuple(s.fromtimestamp(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.fromtimestamp(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isocalendar(self, *args, **kwargs):
-		return PyVector(tuple(s.isocalendar(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isocalendar(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isoformat(self, *args, **kwargs):
-		return PyVector(tuple(s.isoformat(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isoformat(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isoweekday(self, *args, **kwargs):
-		return PyVector(tuple(s.isoweekday(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.isoweekday(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def replace(self, *args, **kwargs):
-		return PyVector(tuple(s.replace(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.replace(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def strftime(self, *args, **kwargs):
-		return PyVector(tuple(s.strftime(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.strftime(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def timetuple(self, *args, **kwargs):
-		return PyVector(tuple(s.timetuple(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.timetuple(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def today(self, *args, **kwargs):
-		return PyVector(tuple(s.today(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.today(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def toordinal(self, *args, **kwargs):
-		return PyVector(tuple(s.toordinal(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.toordinal(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def weekday(self, *args, **kwargs):
-		return PyVector(tuple(s.weekday(*args, **kwargs) for s in self._underlying))
+		return PyVector(tuple((s.weekday(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def __add__(self, other):
 		""" adding integers is adding days """
 		if isinstance(other, PyVector) and other.schema().kind == int:
 			return PyVector(tuple(date.fromordinal(s.toordinal() + y) for s, y in zip(self._underlying, other, strict=True)))
 		if isinstance(other, int):
-			return PyVector(tuple(date.fromordinal(s.toordinal() + other) for s in self._underlying))
+			return PyVector(tuple((date.fromordinal(s.toordinal() + other) if s is not None else None) for s in self._underlying))
 		return super().add(other)
 
 	def eomonth(self):
