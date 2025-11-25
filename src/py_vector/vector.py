@@ -56,7 +56,7 @@ class MethodProxy:
 	def __call__(self, *args, **kwargs):
 		"""Execute the method on each element and return a new PyVector."""
 		return PyVector(tuple(getattr(elem, self._method_name)(*args, **kwargs) 
-		                for elem in self._vector._underlying))
+						for elem in self._vector._underlying))
 
 # ============================================================
 # Main backend
@@ -268,50 +268,41 @@ class PyVector():
 
 	def cast(self, target_type):
 		"""
-		Convert each element to target_type.
-		
-		Parameters
-		----------
-		target_type : type
-			The type to convert to (e.g., int, float, str)
-		
-		Returns
-		-------
-		PyVector
-			New vector with converted elements
-		
-		Raises
-		------
-		ValueError
-			If any element fails to convert (includes index of failure)
-		
-		Examples
-		--------
-		>>> v = PyVector(['10', '20', '30'])
-		>>> v.cast(float)
-		PyVector([10.0, 20.0, 30.0])
+		Convert each element to target_type, recursively if the element is a PyVector.
 		"""
-		# The "I hate Python Dates" interceptor
+
+		# Python Date interceptors
 		if target_type is date:
-			# Swap the constructor for the parser transparently
-			target_type = date.fromisoformat
+			def _to_date(x):
+				if isinstance(x, date):
+					return x
+				return date.fromisoformat(x)
+			target_type = _to_date
+
 		elif target_type is datetime:
-			# Might as well fix this one too while you're at it
-			target_type = datetime.fromisoformat
-		
-		# Hot path: try conversion on all elements
-		try:
-			return PyVector(tuple(target_type(elem) for elem in self._underlying))
-		
-		# Error path: find exact failure point for helpful error message
-		except (ValueError, TypeError) as e:
-			for i, elem in enumerate(self._underlying):
-				try:
-					target_type(elem)
-				except Exception:
-					raise ValueError(
-						f"Cast failed at index {i}: '{elem}' cannot be converted to {target_type.__name__}"
-					) from e
+			def _to_datetime(x):
+				if isinstance(x, datetime):
+					return x
+				return datetime.fromisoformat(x)
+			target_type = _to_datetime
+
+
+		out = []
+		for i, elem in enumerate(self._underlying):
+			try:
+				if isinstance(elem, PyVector):
+					# Recursive cast
+					out.append(elem.cast(target_type))
+				else:
+					# Scalar cast
+					out.append(target_type(elem))
+			except Exception:
+				raise ValueError(
+					f"Cast failed at index {i}: '{elem}' cannot be converted to {target_type.__name__}"
+				)
+
+		return PyVector(tuple(out), name=self._name, as_row=self._display_as_row)
+
 
 	def fillna(self, value):
 		"""
@@ -1445,5 +1436,20 @@ class _PyDate(PyVector):
 			return PyVector(tuple((date.fromordinal(s.toordinal() + other) if s is not None else None) for s in self._underlying))
 		return super().add(other)
 
+
 	def eomonth(self):
-		return self
+		out = []
+		for d in self._underlying:
+			if d is None:
+				out.append(None)
+				continue
+
+			# move to first of next month
+			first_next = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+			# back up one day -> last day of original month
+			last = first_next - timedelta(days=1)
+
+			out.append(last)
+
+		return PyVector(tuple(out))

@@ -110,6 +110,7 @@ class PyTable(PyVector):
 	def size(self):
 		return (len(self),) + self[0].size()
 
+
 	def _build_column_map(self):
 		"""Build mapping from sanitized column names to column indices.
 		
@@ -693,7 +694,7 @@ class PyTable(PyVector):
 			left_on: Column name(s) or PyVector(s) from left table
 			right_on: Column name(s) or PyVector(s) from right table
 			expect: Cardinality expectation - 'one_to_one', 'many_to_one',
-			        'one_to_many', or 'many_to_many'
+					'one_to_many', or 'many_to_many'
 		
 		Returns:
 			PyTable with joined results
