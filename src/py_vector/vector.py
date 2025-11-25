@@ -1436,7 +1436,11 @@ class _PyDate(PyVector):
 	def __add__(self, other):
 		""" adding integers is adding days """
 		if isinstance(other, PyVector) and other.schema().kind == int:
-			return PyVector(tuple(date.fromordinal(s.toordinal() + y) for s, y in zip(self._underlying, other, strict=True)))
+			return PyVector(tuple(
+				(date.fromordinal(s.toordinal() + y) if s is not None and y is not None else None)
+				for s, y in zip(self._underlying, other, strict=True)
+			))
+
 		if isinstance(other, int):
 			return PyVector(tuple((date.fromordinal(s.toordinal() + other) if s is not None else None) for s in self._underlying))
 		return super().add(other)
