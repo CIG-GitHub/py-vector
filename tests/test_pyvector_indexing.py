@@ -55,7 +55,7 @@ class TestSlicing:
     def test_slice_preserves_name(self):
         v = PyVector([1, 2, 3, 4, 5], name='test')
         result = v[1:4]
-        assert result._name == 'test'
+        assert result.name == 'test'
 
 
 class TestBooleanMasking:
@@ -63,7 +63,7 @@ class TestBooleanMasking:
     
     def test_getitem_boolean_mask(self):
         v = PyVector([10, 20, 30, 40, 50])
-        mask = PyVector([True, False, True, False, True], dtype=bool, typesafe=True)
+        mask = PyVector([True, False, True, False, True], dtype=bool)
         result = v[mask]
         assert list(result) == [10, 30, 50]
     
@@ -103,7 +103,7 @@ class TestIntegerVectorIndexing:
     
     def test_getitem_integer_vector(self):
         v = PyVector([10, 20, 30, 40, 50])
-        indices = PyVector([0, 2, 4], dtype=int, typesafe=True)
+        indices = PyVector([0, 2, 4], dtype=int)
         result = v[indices]
         assert list(result) == [10, 30, 50]
     

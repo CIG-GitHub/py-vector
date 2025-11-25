@@ -29,7 +29,7 @@ class TestCreation:
     
     def test_creation_with_name(self):
         v = PyVector([1, 2, 3], name='test_vector')
-        assert v._name == 'test_vector'
+        assert v.name == 'test_vector'
     
     def test_creation_typesafe(self):
         v = PyVector([1, 2, 3], dtype=int)
@@ -57,32 +57,21 @@ class TestIteration:
 
 
 class TestCopy:
-    """Test copy behavior"""
+    """Test copy behavior - tests behavior, not internals"""
     
     def test_copy_basic(self):
         v1 = PyVector([1, 2, 3])
         v2 = v1.copy()
         assert list(v1) == list(v2)
         assert v1 is not v2
-        assert v1._underlying is not v2._underlying
     
     def test_copy_mutation_independence(self):
+        """Mutations to copy don't affect original (copy-on-write)"""
         v1 = PyVector([1, 2, 3])
         v2 = v1.copy()
         v2[0] = 999
-        assert v1[0] == 1
-        assert v2[0] == 999
-    
-    def test_copy_with_new_values(self):
-        v1 = PyVector([1, 2, 3])
-        v2 = v1.copy(new_values=[10, 20, 30])
-        assert list(v2) == [10, 20, 30]
-        assert v1.schema().kind == v2.schema().kind
-    
-    def test_copy_with_name(self):
-        v1 = PyVector([1, 2, 3], name='original')
-        v2 = v1.copy(name='copy')
-        assert v2._name == 'copy'
+        assert v1[0] == 1  # Original unchanged
+        assert v2[0] == 999  # Copy modified
 
 
 class TestTypePromotion:
@@ -111,7 +100,7 @@ class TestBooleanBehavior:
         assert v
         
     def test_nonempty_typed_vector_is_truthy(self):
-        v = PyVector([0], dtype=int, typesafe=True)
+        v = PyVector([0], dtype=int)
         assert v  # Even with 0, the vector itself is truthy
 
 

@@ -21,67 +21,78 @@ def _needs_quoting(name: str) -> bool:
 
 
 def _format_column(col, max_preview: int = MAX_HEAD_ROWS) -> List[str]:
-	"""Returns a list of strings representing that column, truncated for display."""
-	# Truncate with symmetric preview
-	vals = col._underlying
-	if len(vals) > max_preview * 2:
-		preview = list(vals[:max_preview]) + ['...'] + list(vals[-max_preview:])
-	else:
-		preview = list(vals)
+    """Returns a list of strings representing that column, truncated for display."""
+    # 1. Use Public API for data access (Slicing/Iteration)
+    # col is a PyVector, so it supports len() and slicing
+    N = len(col)
+    if N > max_preview * 2:
+        # Slicing returns PyVector, cast to list for display processing
+        head = list(col[:max_preview])
+        tail = list(col[N - max_preview:])
+        preview = head + ['...'] + tail
+    else:
+        preview = list(col)
 
-	# Type-sensitive formatting
-	out = []
-	for v in preview:
-		if v == '...':
-			out.append('...')
-		elif col._dtype and col._dtype.kind is float:
-			out.append(f"{v:.1f}" if v == int(v) else f"{v:g}")
-		elif col._dtype and col._dtype.kind is int:
-			out.append(str(v))
-		elif col._dtype and col._dtype.kind is date:
-			out.append(v.isoformat())
-		elif col._dtype and col._dtype.kind is str:
-			out.append(repr(v))
-		else:
-			out.append(str(v))
+    # 2. Use Public API for Metadata
+    dtype = col.schema()
+    
+    # Type-sensitive formatting
+    out = []
+    for v in preview:
+        if v == '...':
+            out.append('...')
+        elif v is None:
+            out.append("None") # or "" depending on preference
+        elif dtype and dtype.kind is float:
+            # Handle standard float formatting
+            out.append(f"{v:.1f}" if v == int(v) else f"{v:g}")
+        elif dtype and dtype.kind is int:
+            out.append(str(v))
+        elif dtype and dtype.kind is date:
+            out.append(v.isoformat())
+        elif dtype and dtype.kind is str:
+            out.append(repr(v))
+        else:
+            out.append(str(v))
 
-	# Align: numeric right, others left
-	max_len = max(len(s) for s in out) if out else 0
-	if col._dtype and col._dtype.kind in (int, float):
-		return [s.rjust(max_len) for s in out]
-	return [s.ljust(max_len) for s in out]
+    # Align: numeric right, others left
+    max_len = max(len(s) for s in out) if out else 0
+    if dtype and dtype.kind in (int, float):
+        return [s.rjust(max_len) for s in out]
+    return [s.ljust(max_len) for s in out]
 
 
 def _compute_headers(cols, col_indices, sanitize_func, uniquify_func):
-	"""Given PyTable columns and indices, returns display_names, sanitized_names, dtypes."""
-	display_names = []
-	sanitized_names = []
-	dtypes = []
-	seen = set()
+    """Given PyTable columns and indices, returns display_names, sanitized_names, dtypes."""
+    display_names = []
+    sanitized_names = []
+    dtypes = []
+    seen = set()
 
-	for idx in col_indices:
-		col = cols[idx]
+    for idx in col_indices:
+        col = cols[idx]
 
-		# Display name
-		disp = col._name or ""
-		display_names.append(disp)
+        # Use Public API .name
+        disp = col.name or ""
+        display_names.append(disp)
 
-		# Sanitized dot name
-		if col._name:
-			san = sanitize_func(col._name)
-			if san is None:
-				san = f"col{idx}_"
-			else:
-				san = uniquify_func(san, seen)
-				seen.add(san)
-		else:
-			san = f"col{idx}_"
-		sanitized_names.append(san)
+        # Sanitized dot name
+        if col.name:
+            san = sanitize_func(col.name)
+            if san is None:
+                san = f"col{idx}_"
+            else:
+                san = uniquify_func(san, seen)
+                seen.add(san)
+        else:
+            san = f"col{idx}_"
+        sanitized_names.append(san)
 
-		# Dtype
-		dtypes.append(col._dtype.kind.__name__ if col._dtype else "object")
+        # Use Public API .schema()
+        dt = col.schema()
+        dtypes.append(dt.kind.__name__ if dt else "object")
 
-	return display_names, sanitized_names, dtypes
+    return display_names, sanitized_names, dtypes
 
 
 def _header_rows(display_names, sanitized_names):
@@ -147,70 +158,71 @@ def _align_columns(formatted_cols, header_rows, col_dtypes):
 
 
 def _footer(pv, dtype_list=None, truncated=False, shown=MAX_HEAD_COLS) -> str:
-	"""Generate footer line based on shape and dtypes."""
-	shape = pv.size()
-	if not shape:
-		return "# empty"
-	
-	if len(shape) == 1:
-		if pv._dtype:
-			dt = pv._dtype.kind.__name__
-			if pv._dtype.nullable:
-				dt += "?"
-		else:
-			dt = "object"
-		return f"# {len(pv)} element vector <{dt}>"
-	
-	if len(shape) == 2:
-		if dtype_list:
-			if truncated:
-				d = ", ".join(dtype_list[:shown]) + ", ..., " + ", ".join(dtype_list[-shown:])
-			else:
-				d = ", ".join(dtype_list)
-		else:
-			d = pv._dtype.kind.__name__ if pv._dtype else "object"
-		rows, cols = shape
-		return f"# {rows}×{cols} table <{d}>"
-	
-	shape_str = "×".join(str(s) for s in shape)
-	if pv._dtype:
-		dt = pv._dtype.kind.__name__
-		if pv._dtype.nullable:
-			dt += "?"
-	else:
-		dt = "object"
-	return f"# {shape_str} tensor <{dt}>"
+    """Generate footer line based on shape and dtypes."""
+    # Use Public API .size()
+    shape = pv.size()
+    if not shape or shape == (0,):
+        return "# empty"
+    
+    # Use Public API .schema()
+    dtype = pv.schema()
+
+    if len(shape) == 1:
+        if dtype:
+            dt = dtype.kind.__name__
+            if dtype.nullable:
+                dt += "?"
+        else:
+            dt = "object"
+        return f"# {len(pv)} element vector <{dt}>"
+    
+    if len(shape) == 2:
+        if dtype_list:
+            if truncated:
+                d = ", ".join(dtype_list[:shown]) + ", ..., " + ", ".join(dtype_list[-shown:])
+            else:
+                d = ", ".join(dtype_list)
+        else:
+            d = dtype.kind.__name__ if dtype else "object"
+        rows, cols = shape
+        return f"# {rows}×{cols} table <{d}>"
+    
+    # Fallback for ndims > 2
+    return "# tensor"
 
 
 def _repr_vector(v) -> str:
-	"""Pretty repr for a 1D PyVector."""
-	formatted = _format_column(v)
-	
-	# Compute width: max of data and header (if present)
-	data_width = max(len(s) for s in formatted) if formatted else 0
-	header_width = 0
-	if v._name:
-		header_text = repr(v._name) if _needs_quoting(v._name) else v._name
-		header_width = len(header_text)
-	
-	width = max(data_width, header_width)
-	
-	# Re-align data to match combined width
-	if v._dtype and v._dtype.kind in (int, float):
-		formatted = [s.rjust(width) for s in formatted]
-	else:
-		formatted = [s.ljust(width) for s in formatted]
-	
-	lines = []
+    """Pretty repr for a 1D PyVector."""
+    formatted = _format_column(v)
+    
+    # Compute width
+    data_width = max(len(s) for s in formatted) if formatted else 0
+    header_width = 0
+    
+    # Use Public API .name
+    if v.name:
+        header_text = repr(v.name) if _needs_quoting(v.name) else v.name
+        header_width = len(header_text)
+    
+    width = max(data_width, header_width)
+    
+    # Align
+    dtype = v.schema()
+    if dtype and dtype.kind in (int, float):
+        formatted = [s.rjust(width) for s in formatted]
+    else:
+        formatted = [s.ljust(width) for s in formatted]
+    
+    lines = []
 
-	# Optional vector name
-	if v._name:
-		lines.append(header_text.ljust(width) if not v._dtype or v._dtype.kind not in (int, float) else header_text.rjust(width))
+    # Optional vector name
+    if v.name:
+        lines.append(header_text.ljust(width) if not dtype or dtype.kind not in (int, float) else header_text.rjust(width))
 
-	lines.extend(formatted)
-	lines.append("")
-	lines.append(_footer(v))
-	return "\n".join(lines)
+    lines.extend(formatted)
+    lines.append("")
+    lines.append(_footer(v))
+    return "\n".join(lines)
 
 
 def _repr_table(tbl) -> str:

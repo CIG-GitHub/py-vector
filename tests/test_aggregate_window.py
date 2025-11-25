@@ -177,8 +177,8 @@ class TestAggregate:
 		)
 		
 		# Should have value_sum and value_sum2 (deduplicated)
-		assert 'value_sum' in [col._name for col in result._underlying]
-		assert 'value_sum2' in [col._name for col in result._underlying]
+		assert hasattr(result, 'value_sum')
+		assert hasattr(result, 'value_sum2')
 
 
 class TestWindow:
@@ -456,5 +456,5 @@ class TestAggregateWindowEdgeCases:
 		res_year = res['year']
 		res_month = res['month']
 		expected_keys = list({(year[i], month[i]) for i in range(len(year))})
-		actual_keys = list(zip(res_year._underlying, res_month._underlying))
+		actual_keys = list(zip(res_year, res_month))  # Use public API iteration
 		assert set(actual_keys) == set(expected_keys)

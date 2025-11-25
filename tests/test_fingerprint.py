@@ -50,7 +50,7 @@ class TestMutationDetection:
     def test_integer_vector_mutation(self):
         v = PyVector([1, 2, 3, 4, 5])
         fp1 = v.fingerprint()
-        indices = PyVector([0, 2, 4], dtype=int, typesafe=True)
+        indices = PyVector([0, 2, 4], dtype=int)
         v[indices] = 999
         fp2 = v.fingerprint()
         assert fp1 != fp2
