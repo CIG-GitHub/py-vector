@@ -285,9 +285,13 @@ class PyTable(PyVector):
 		if isinstance(key, tuple):
 			if len(key) != len(self.size()):
 				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.size()}")
-			# for now.
+
+			# Reject 3+ dimensional indexing explicitly
 			if len(key) > 2:
-				return self[key[0]][key[1:]]
+				raise PyVectorKeyError(
+					f"PyTable only supports 2D indexing (row, column); "
+					f"got {len(key)} indices."
+				)
 
 			if isinstance(key[0], slice):
 				if isinstance(key[1], int):
