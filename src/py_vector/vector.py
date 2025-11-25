@@ -7,6 +7,8 @@ from datetime import datetime
 from . import config
 from .alias_tracker import _ALIAS_TRACKER
 from .alias_tracker import AliasError
+from .backends.tuple import TupleBackend
+from .backends.table import TableBackend
 from .errors import PyVectorIndexError
 from .typing import DataType
 from .typing import infer_dtype
@@ -109,17 +111,28 @@ class PyVector:
     # --------------------------------------------------------
 
     def __getitem__(self, key):
-        # Delegate to backend
-        result = self._impl[key]
-        
-        # If backend returns a Backend object (slice/mask), wrap it
-        if hasattr(result, "dtype"):
-            new = PyVector(None, _impl=result)
-            new._impl._name = self._impl._name
-            return new
+            """
+            Public indexing entrypoint.
 
-        # If scalar, return raw
-        return result
+            Normalizes PyVector keys → raw Python types before delegating to the backend.
+            Wraps backend slice/mask results back into a PyVector shell.
+            """
+
+            # 1. Normalize PyVector keys (boolean mask / integer fancy index)
+            #    v[mask_vec]  or v[idx_vec]
+            if isinstance(key, PyVector):
+                key = list(key)  # becomes list[bool] or list[int]
+
+            # 2. Delegate to backend
+            result = self._impl[key]
+
+            # 3. If backend returns another backend (slice/mask/gather), wrap it
+            #    TupleBackend is the only slicing backend for vectors.
+            if isinstance(result, (TupleBackend, TableBackend)):
+                return PyVector(None, _impl=result)
+
+            # 4. Scalar → return as-is
+            return result
 
     def __setitem__(self, key, value):
         from .alias_tracker import _ALIAS_TRACKER, AliasError
@@ -138,8 +151,10 @@ class PyVector:
         
         if isinstance(key, int):
             indices = [key + n if key < 0 else key]
+
         elif isinstance(key, slice):
             indices = list(range(*key.indices(n)))
+
         elif isinstance(key, (list, tuple, PyVector)):
             if isinstance(key, PyVector):
                 k_list = list(key)
@@ -147,38 +162,39 @@ class PyVector:
                 k_list = key
             
             if not k_list:
-                return # Nothing to set
+                return  # Nothing to set
                 
             # Boolean Mask
             if isinstance(k_list[0], bool):
                 if len(k_list) != n:
                     raise PyVectorValueError(f"Mask length {len(k_list)} != vector length {n}")
                 indices = [i for i, x in enumerate(k_list) if x]
+
             # Integer Fancy Indexing
             elif isinstance(k_list[0], int):
                 indices = [i + n if i < 0 else i for i in k_list]
+
             else:
-                 raise PyVectorTypeError(f"Invalid index type: {type(k_list[0])}")
+                raise PyVectorTypeError(f"Invalid index type: {type(k_list[0])}")
+
         else:
-             raise PyVectorTypeError(f"Unsupported index type: {type(key)}")
+            raise PyVectorTypeError(f"Unsupported index type: {type(key)}")
 
         if not indices:
             return
 
         # 3. Resolve Values (Broadcast or Zip)
-        updates = []
         if hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
-            # Iterable value: Must match length of indices
             vals = list(value)
             if len(vals) != len(indices):
                 raise PyVectorValueError(f"Mismatch: assigning {len(vals)} values to {len(indices)} indices")
             updates = list(zip(indices, vals))
         else:
-            # Scalar value: Broadcast
             updates = [(i, value) for i in indices]
 
         # 4. Apply
         self._impl.set_values(updates)
+
 
     # --------------------------------------------------------
     # Arithmetic (The "One Function Call" Overhead)

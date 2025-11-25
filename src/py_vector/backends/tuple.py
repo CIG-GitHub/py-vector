@@ -58,16 +58,10 @@ class TupleBackend:
     Pure-Python, tuple-backed implementation of a vector.
     """
 
-    # Optimization: Prevent __dict__ creation to save RAM
-    # Must include ALL instance variables used in __init__
     __slots__ = ('_data', '_dtype', '_name', '_fp', '_fp_powers')
 
     _FP_P = (1 << 61) - 1
     _FP_B = 1315423911
-
-    # --------------------------------------------------------
-    # Construction
-    # --------------------------------------------------------
 
     def __init__(
         self,
@@ -75,11 +69,28 @@ class TupleBackend:
         dtype: DataType | type | None = None,
         name: str | None = None,
     ) -> None:
+        # -----------------------------
+        # Normalize incoming data
+        # -----------------------------
         if data is None:
-            data = ()
+            seq = ()
+        # If someone passes an existing backend, treat it as "clone data"
+        elif isinstance(data, TupleBackend):
+            seq = data._data
+        else:
+            # Accept both scalars and iterables; strings stay as scalars
+            try:
+                # Don't treat str/bytes as iterables of characters
+                if isinstance(data, (str, bytes)):
+                    raise TypeError
+                iter(data)
+            except TypeError:
+                seq = (data,)
+            else:
+                seq = tuple(data)
 
-        # Store data as-is (including PyVector wrappers for PyTable columns)
-        self._data = tuple(data)
+        # IMPORTANT: _data is always a tuple of "values", never other backends
+        self._data = seq
 
         if isinstance(dtype, DataType):
             self._dtype: DataType | None = dtype
@@ -93,6 +104,7 @@ class TupleBackend:
         # Fingerprint cache + powers
         self._fp: int | None = None
         self._fp_powers: List[int] | None = None
+
 
     # --------------------------------------------------------
     # Basic protocol
@@ -109,26 +121,26 @@ class TupleBackend:
             return self._data[key]
         
         if isinstance(key, slice):
-            return TupleBackend(self._data[key], dtype=self._dtype, name=None)
+            return TupleBackend(self._data[key], dtype=self._dtype, name=self._name)
 
         # Handle Lists/Tuples (Boolean Mask or Integer Gather)
         if isinstance(key, (list, tuple)):
             if not key:
-                 return TupleBackend([], dtype=self._dtype, name=None)
+                 return TupleBackend([], dtype=self._dtype, name=self._name)
             
             # Case A: Boolean Mask
             if isinstance(key[0], bool):
                  if len(key) != len(self._data):
                      raise PyVectorValueError(f"Mask length {len(key)} != vector length {len(self._data)}")
                  new_data = [x for x, m in zip(self._data, key) if m]
-                 return TupleBackend(new_data, dtype=self._dtype, name=None)
+                 return TupleBackend(new_data, dtype=self._dtype, name=self._name)
             
             # Case B: Integer Gather
             if isinstance(key[0], int):
                  # Handle negative indices for list access
                  n = len(self._data)
                  new_data = [self._data[i + n if i < 0 else i] for i in key]
-                 return TupleBackend(new_data, dtype=self._dtype, name=None)
+                 return TupleBackend(new_data, dtype=self._dtype, name=self._name)
 
         raise PyVectorTypeError(f"Invalid index type {type(key).__name__} for TupleBackend")
 

@@ -8,6 +8,7 @@ from .naming import _uniquify
 from .errors import PyVectorKeyError
 from .errors import PyVectorValueError
 from .errors import PyVectorTypeError
+from .backends.table import TableBackend
 
 def _missing_col_error(name, context="PyTable"):
     return PyVectorKeyError(f"Column '{name}' not found in {context}")
@@ -19,88 +20,106 @@ class _RowView:
     
     def __init__(self, table, index):
         # Cache direct handles to underlying raw tuple data
-        # table is PyVector -> ._impl (Backend) -> ._data (Tuple of Columns)
-        # col is PyVector -> ._impl (Backend) -> ._data (Raw Tuple)
         self._cols_data = [col._impl._data for col in table._impl._data]
-        self._column_map = table._column_map
+
+        # Build name -> column_index map from PyTable's column map
+        cmap = table._build_column_map()
+        # cmap: name -> (col, idx)
+        self._column_map = {name: idx for name, (_col, idx) in cmap.items()}
+
         self._index = index
-    
+
     def set_index(self, index):
         self._index = index
         return self
-    
+
     def __getattr__(self, attr):
-        col_idx = self._column_map.get(attr.lower())
+        col_idx = self._col_map.get(attr)
         if col_idx is None:
             raise AttributeError(f"Row has no attribute '{attr}'")
         return self._cols_data[col_idx][self._index]
-    
+
     def __getitem__(self, key):
-        try:
+        # row[0] / row[1] etc.
+        if isinstance(key, int):
             return self._cols_data[key][self._index]
-        except TypeError:
-            if isinstance(key, str):
-                return getattr(self, key)
-            raise TypeError(f"Row indices must be int or str, not {type(key).__name__}")
-    
+        # row["a"]
+        if isinstance(key, str):
+            return getattr(self, key)
+        raise TypeError(f"Row indices must be int or str, not {type(key).__name__}")
+
     def __iter__(self):
         idx = self._index
         for col_data in self._cols_data:
             yield col_data[idx]
-    
+
     def __len__(self):
         return len(self._cols_data)
-    
+
     def __repr__(self):
+        # Only used in tests / debugging; keep it cheap
         try:
-            from .display import _printr # Embedded here too
+            from .display import _printr
             return _printr(self)
         except ImportError:
-            # Fallback is nice to have during refactors
-            return f"PyTable({self.size()} rows)"
+            return f"<RowView index={self._index} cols={len(self._cols_data)}>"
+
 
 
 class PyTable(PyVector):
-    """ Multiple columns of the same length """
-    _length = None
-    
-    # We don't need __new__ override if using standard PyVector shell pattern
-    
-    def __init__(self, initial=(), dtype=None, name=None, as_row=False):
-        # Handle dict initialization {name: values, ...}
-        if isinstance(initial, dict):
-            initial = [PyVector(values, name=col_name) for col_name, values in initial.items()]
-        
-        self._length = len(initial[0]) if initial else 0
-        for col in initial:
-            if len(col) != self._length:
-                warnings.warn("Unequal column lengths", UserWarning)
-                break
 
-        # Deep copy columns and preserve names
-        original_names = [vec.name for vec in initial] if initial else []
-        
-        if initial:
-            # We must explicitly copy to prevent aliasing
-            initial = tuple(vec.copy() for vec in initial)
+    def __new__(cls, initial=(), dtype=None, name=None, as_row=False, _impl=None):
+        """
+        PyTable constructor (factory).
+        If _impl is provided, wrap it directly (same pattern as PyVector).
+        Otherwise, build a TableBackend from the given columns/rows.
+        """
+        if _impl is not None:
+            # Direct backend wrap (coming from joins, slicing, etc.)
+            obj = super().__new__(cls)
+            super(PyTable, obj).__init__(None, dtype=None, name=name, _impl=_impl)
+            return obj
+
+        # Normalize input
+        # Case: dict → columns with names
+        if isinstance(initial, dict):
+            cols = [PyVector(values, name=key) for key, values in initial.items()]
         else:
-            initial = ()
-        
-        # Explicitly set dtype to None for the Table itself (it holds Vectors)
-        self._dtype = None
-        
-        # Initialize the parent PyVector. 
-        # This creates self._impl (TupleBackend) holding the tuple of PyVectors.
-        super().__init__(initial, dtype=dtype, name=name)
-        
-        # Restore column names on the new copies
-        # self._impl._data is the tuple of columns
-        if original_names:
-            columns = self._impl._data
-            for i, col_name in enumerate(original_names):
-                if i < len(columns):
-                    columns[i].rename(col_name)
-        
+            # Case: sequence of columns or rows
+            cols = []
+            for item in initial:
+                if isinstance(item, PyVector):
+                    cols.append(item)
+                else:
+                    cols.append(PyVector(item))
+
+        # Validate equal length
+        nrows = len(cols[0]) if cols else 0
+        for col in cols:
+            if len(col) != nrows:
+                warnings.warn("Creating PyTable with columns of unequal length.", UserWarning)
+
+        # Build backend from raw data
+        raw_cols  = tuple(col._impl._data for col in cols)
+        col_names = tuple(col.name for col in cols)
+
+        backend = TableBackend(raw_cols, names=col_names, nrows=nrows, name=name)
+
+        # Create shell object with backend
+        obj = super().__new__(cls)
+        super(PyTable, obj).__init__(None, dtype=None, name=name, _impl=backend)
+        return obj
+
+
+    def __init__(self, *args, **kwargs):
+        """
+        PyTable.__init__ does nothing.
+
+        Construction logic is entirely done in __new__,
+        mirroring ndarray, pandas, and our PyVector(_impl=...) pattern.
+        """
+        pass
+
 
     def __len__(self):
         if not self._impl._data:
@@ -118,9 +137,50 @@ class PyTable(PyVector):
         # Rows, Cols
         return (self._length, len(self._impl))
 
+    @property
     def cols(self):
-        """Helper to get the tuple of column vectors."""
-        return self._impl._data
+        """
+        Returns a simple dict:
+            name -> PyVector
+        """
+        cmap = self._build_column_map()
+        return {name: col for name, (col, _) in cmap.items()}
+
+    def _build_column_map(self):
+        """
+        Returns:
+            dict mapping:
+                sanitized_name -> (column PyVector, original_index)
+
+        Guarantees:
+            - Sanitization is stable
+            - Duplicate sanitized names get suffixes: col, col_1, col_2, ...
+            - Order is preserved
+        """
+        from .naming import _sanitize_user_name
+
+        result: dict[str, tuple[PyVector, int]] = {}
+        used: set[str] = set()
+
+        # only use backend data here
+        cols = self._impl._data  # tuple of column PyVectors
+
+        for idx, col in enumerate(cols):
+            raw = col.name  # public shell property
+            base = _sanitize_user_name(raw if raw else f"col{idx}")
+
+            # Ensure unique sanitized name
+            name = base
+            counter = 1
+            while name in used:
+                name = f"{base}_{counter}"
+                counter += 1
+
+            used.add(name)
+            result[name] = (col, idx)
+
+        return result
+
 
     def __dir__(self):
         from .naming import _sanitize_user_name
@@ -135,21 +195,19 @@ class PyTable(PyVector):
                 
         return list(col_attrs | base_attrs)
 
+
     def __getattr__(self, attr):
-        # If we are looking for '_impl' (or any private var), fail immediately.
-        # Otherwise, reading self._impl below triggers infinite recursion.
-        if attr.startswith("_"):
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+        """
+        Allows t.customer, t.amount, etc.
+        Required by tests.
+        """
+        cmap = self._build_column_map()
 
-        # Now it is safe to access self._impl for the Strobe Lookup
-        from .naming import _sanitize_user_name
-        
-        for col in self._impl._data:
-            if _sanitize_user_name(col.name) == attr:
-                return col
-                
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+        if attr in cmap:
+            return cmap[attr][0]
 
+        raise AttributeError(f"'PyTable' object has no attribute '{attr}'")
+    
     def rename_column(self, old_name, new_name):
         # Just find the column and mutate it. No map update needed.
         for col in self._impl._data:
@@ -207,66 +265,100 @@ class PyTable(PyVector):
         return self.copy((tuple(x.T for x in self.cols())))
 
     def __getitem__(self, key):
-        # 1. Integer Index -> ROW ACCESS
-        # Returns a lightweight view of the row (like a dict/object)
-        if isinstance(key, int):
-            # Handle negative indexing
-            if key < 0:
-                key += self._length
-            
-            if not (0 <= key < self._length):
-                raise PyVectorIndexError(f"Row index {key} out of bounds")
-                
-            return _RowView(self, key)
-
-        # 2. String -> COLUMN ACCESS (Stateless Strobe Lookup)
+        # Column selection: t['a']
         if isinstance(key, str):
-            # Pass 1: Exact Match
+            # exact name lookup
             for col in self._impl._data:
                 if col.name == key:
                     return col
             
-            # Pass 2: Sanitized Match
-            from .naming import _sanitize_user_name
-            target = key.lower()
-            for col in self._impl._data:
-                if _sanitize_user_name(col.name) == target:
-                    return col
+            # Try sanitized name lookup
+            key_lower = key.lower()
+            seen = set()
+            for idx, col in enumerate(self._impl._data):
+                if col.name is not None:
+                    base = _sanitize_user_name(col.name)
+                    if base is None:
+                        if f'col{idx}_' == key_lower:
+                            return col
+                    else:
+                        sanitized = _uniquify(base, seen)
+                        seen.add(sanitized)
+                        if sanitized == key_lower:
+                            return col
+                else:
+                    if f'col{idx}_' == key_lower:
+                        return col
             
             raise _missing_col_error(key)
 
-        # 3. Slice -> ROW SLICE (Subset of Table)
+        # Multiple columns: t['a','b']
+        if isinstance(key, tuple):
+            selected = [self[k] for k in key]
+            return PyTable(selected)
+
+        # Row indexing: t[3], t[2:5], etc.
+        if isinstance(key, int):
+            # return a row as a list of scalar values
+            return [col[key] for col in self._impl._data]
+
         if isinstance(key, slice):
-            # Slice every column to same length
-            new_cols = [col[key] for col in self._impl._data]
-            return PyTable(new_cols)
+            # return table of sliced columns
+            sliced = [col[key] for col in self._impl._data]
+            return PyTable(sliced)
 
-        # 4. List/Tuple of Strings -> SUBSET OF COLUMNS
-        if isinstance(key, (tuple, list)):
-            # If all are strings, select columns
-            if all(isinstance(k, str) for k in key):
-                selected = []
-                # Naive implementation: iterate loop above. 
-                # Optimization: map names once if list is long.
-                for k in key:
-                    selected.append(self[k].copy()) # Use self[k] to trigger strobe lookup
-                return PyTable(selected)
+        if isinstance(key, PyVector):
+            # boolean mask or integer gather
+            seq = list(key)
+            sliced = [col[seq] for col in self._impl._data]
+            return PyTable(sliced)
 
-        # 5. Boolean Mask (PyVector or List) -> ROW FILTER
-        # (Defer to super/vector logic or implement explicit masking)
-        if isinstance(key, PyVector) or (isinstance(key, list) and len(key) == self._length):
-             # Mask every column
-             mask = key # logic to ensure it's a list/mask
-             new_cols = [col[mask] for col in self._impl._data]
-             return PyTable(new_cols)
+        raise TypeError(f"Invalid index type for PyTable: {type(key)}")
 
-        raise PyVectorTypeError(f"Invalid index type: {type(key)}")
 
     def __iter__(self):
-        row_view = _RowView(self, 0)
-        for i in range(self._length):
+        """
+        Iterate over rows.
+
+        Yields _RowView objects with attribute access:
+            for row in t:
+                row.customer
+                row["amount"]
+        """
+        from .naming import _sanitize_user_name
+
+        backend = self._impl
+        cols_data = backend._data
+        nrows = self._length
+
+        # Build attribute → column index map once
+        attr_map = {}
+        used = set()
+
+        # We get raw names from backend._names, which was passed in at construction.
+        names = getattr(backend, "_names", tuple(None for _ in cols_data))
+
+        for idx, raw_name in enumerate(names):
+            base = _sanitize_user_name(raw_name if raw_name is not None else f"col{idx}")
+            if not base:
+                continue
+
+            name = base
+            counter = 1
+            while name in used:
+                name = f"{base}_{counter}"
+                counter += 1
+
+            used.add(name)
+            attr_map[name] = idx
+
+        # Reuse a single RowView, just changing its index
+        row_view = _RowView(cols_data, attr_map, 0)
+
+        for i in range(nrows):
             row_view.set_index(i)
             yield row_view
+
 
     def __repr__(self):
         # assuming _printr handles PyTable logic
@@ -314,48 +406,125 @@ class PyTable(PyVector):
     # Joins - Updated to use ._impl._data for raw access
     # -------------------------------------------------------------------------
 
-    def _validate_join_keys(self, other, left_on, right_on):
-        # (Same implementation logic, just ensure we use standard access)
-        # For PyVectors, we can use standard indexing.
-        # ... logic from your snippet is largely compatible as long as 
-        # get_column uses self[col_spec] which we fixed in __getitem__
-        
-        # Copy-paste the logic but keep get_column clean
-        from datetime import date, datetime
-        
+    def _validate_join_keys(self, other, left_on, right_on, expect=None):
+        """
+        Normalize and validate join key specifications.
+
+        left_on, right_on:
+          - str  -> column name (supports sanitized lookup)
+          - PyVector -> explicit key column (must match table length)
+          - list/tuple of the above
+
+        Raises
+        ------
+        ValueError
+            If left_on/right_on lists have different lengths.
+        PyVectorValueError
+            If key column lengths don't match their tables, or each other.
+        PyVectorTypeError
+            If key dtypes are incompatible.
+        """
+        from collections import Counter
+        from .vector import PyVector  # local import to avoid cycles
+
+        # Normalize to lists
+        if isinstance(left_on, (str, PyVector)):
+            left_on = [left_on]
+        if isinstance(right_on, (str, PyVector)):
+            right_on = [right_on]
+
+        if len(left_on) != len(right_on):
+            # This is a *specification* mismatch, not data -> plain ValueError
+            raise ValueError("left_on and right_on must have the same length")
+
         def get_column(table, col_spec, side_name):
+            # Strings: delegate to table.__getitem__ which already does
+            # exact + sanitized lookup and raises PyVectorKeyError
             if isinstance(col_spec, str):
                 try:
                     return table[col_spec]
-                except (KeyError, ValueError):
-                    raise _missing_col_error(col_spec, context=f"{side_name} table")
-            elif isinstance(col_spec, PyVector):
-                return col_spec
-            else:
-                raise PyVectorValueError(f"Invalid column spec: {type(col_spec)}")
+                except Exception as e:
+                    # Preserve PyVectorKeyError, rewrap everything else
+                    from .errors import PyVectorKeyError
+                    if isinstance(e, PyVectorKeyError):
+                        raise
+                    raise PyVectorKeyError(
+                        f"Column '{col_spec}' not found in {side_name} table"
+                    )
 
-        # ... (rest of validation logic matches your snippet) ...
-        # I'll inject the minimal needed wrapper logic here to save space
-        # Assuming exact copy of your validation logic, just ensure 
-        # it calls the get_column defined above.
-        
-        # RE-INJECTING YOUR VALIDATION LOGIC FOR COMPLETENESS:
-        if isinstance(left_on, (str, PyVector)): left_on = [left_on]
-        if isinstance(right_on, (str, PyVector)): right_on = [right_on]
-        
-        normalized = []
+            # Explicit PyVector key column
+            if isinstance(col_spec, PyVector):
+                return col_spec
+
+            # Anything else is an invalid type for key spec
+            from .errors import PyVectorValueError
+            raise PyVectorValueError(f"Invalid column spec: {type(col_spec)}")
+
+        from .errors import PyVectorValueError, PyVectorTypeError
+
+        left_cols: list[PyVector] = []
+        right_cols: list[PyVector] = []
+
         for i, (l_spec, r_spec) in enumerate(zip(left_on, right_on)):
             l_col = get_column(self, l_spec, "left")
             r_col = get_column(other, r_spec, "right")
-            
-            # Checking types
+
+            # Length checks
+            if len(l_col) != len(self):
+                raise PyVectorValueError(
+                    f"Join key length mismatch on left (position {i})"
+                )
+            if len(r_col) != len(other):
+                raise PyVectorValueError(
+                    f"Join key length mismatch on right (position {i})"
+                )
+            if len(l_col) != len(r_col):
+                raise PyVectorValueError(
+                    f"Join key columns must have same length at position {i}"
+                )
+
+            # DType / kind compatibility
             ls = l_col.schema()
             rs = r_col.schema()
             if ls and rs and ls.kind != rs.kind:
-                 raise PyVectorTypeError(f"Join key mismatch at {i}: {ls.kind} vs {rs.kind}")
-            
-            normalized.append((l_col, r_col))
-        return normalized
+                raise PyVectorTypeError(
+                    f"Join key mismatch at position {i}: {ls.kind} vs {rs.kind}"
+                )
+
+            left_cols.append(l_col)
+            right_cols.append(r_col)
+
+        # Cardinality checks (optional)
+        # expect ∈ {"many_to_many","many_to_one","one_to_many","one_to_one"} or None
+        if expect and expect != "many_to_many":
+            # Composite keys: tuples across all key columns
+            if left_cols:
+                left_keys = list(zip(*[c._impl._data for c in left_cols]))
+                right_keys = list(zip(*[c._impl._data for c in right_cols]))
+            else:
+                left_keys = []
+                right_keys = []
+
+            lc = Counter(left_keys)
+            rc = Counter(right_keys)
+
+            # one_to_* => left side must not repeat keys
+            if expect in ("one_to_one", "one_to_many"):
+                if any(cnt > 1 for cnt in lc.values()):
+                    raise ValueError(
+                        "Join cardinality violation: left side is not one-to-*"
+                    )
+
+            # *_to_one => right side must not repeat keys
+            if expect in ("one_to_one", "many_to_one"):
+                if any(cnt > 1 for cnt in rc.values()):
+                    raise ValueError(
+                        "Join cardinality violation: right side is not *-to-one"
+                    )
+
+        # Return list[(left_col, right_col)]
+        return list(zip(left_cols, right_cols))
+
 
     @staticmethod
     def _validate_key_tuple_hashable(key_tuple, key_cols, row_idx):
@@ -364,474 +533,761 @@ class PyTable(PyVector):
         except TypeError as e:
             raise PyVectorTypeError(f"Unhashable key at row {row_idx}: {e}")
 
-    def left_join(self, other, left_on, right_on):
-        # 1. Setup
+
+    def join(self, other, left_on, right_on, expect='many_to_one'):
+        """
+        High-performance join with cardinality expectations.
+        """
+
+        # -------------------------
+        # 1. Validate expectation
+        # -------------------------
+        if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
+            raise PyVectorValueError(
+                f"Invalid expect '{expect}'. "
+                "Must be one of 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
+            )
+
+        check_right_unique = expect in ('one_to_one', 'many_to_one')
+        check_left_unique  = expect in ('one_to_one', 'one_to_many')
+
+        # -------------------------
+        # 2. Resolve key columns
+        # -------------------------
         pairs = self._validate_join_keys(other, left_on, right_on)
-        
-        # Access raw data for speed
-        left_keys_data = [col._impl._data for col, _ in pairs]
+
+        left_keys_data  = [col._impl._data for col, _ in pairs]
         right_keys_data = [col._impl._data for _, col in pairs]
-        
-        left_cols_data = [c._impl._data for c in self._impl._data]
-        right_cols_data = [c._impl._data for c in other._impl._data]
-        
-        left_nrows = self._length
+
+        pk_len = len(left_keys_data)
+
+        # -------------------------
+        # 3. Access underlying data
+        # -------------------------
+        left_cols  = self._impl._data
+        right_cols = other._impl._data
+
+        left_cols_data  = [c._impl._data for c in left_cols]
+        right_cols_data = [c._impl._data for c in right_cols]
+
+        left_nrows  = len(self)
         right_nrows = len(other)
-        
-        # 2. Build Hash Map (Right Table)
+
+        # -------------------------
+        # 4. Build hash index on RIGHT
+        # -------------------------
         right_index = {}
-        pk_len = len(right_keys_data)
-        
+        if check_right_unique:
+            duplicates = {}
+
         for r_idx in range(right_nrows):
             key = tuple(right_keys_data[k][r_idx] for k in range(pk_len))
-            if key not in right_index:
-                right_index[key] = []
-            right_index[key].append(r_idx)
-            
-        # 3. Join Loop
-        result_data = [[] for _ in range(len(left_cols_data) + len(right_cols_data))]
-        
+
+            bucket = right_index.get(key)
+            if bucket is None:
+                right_index[key] = [r_idx]
+            else:
+                bucket.append(r_idx)
+                if check_right_unique and key not in duplicates:
+                    duplicates[key] = bucket
+
+        # Enforce right-side uniqueness
+        if check_right_unique and duplicates:
+            key, occurrences = next(iter(duplicates.items()))
+            raise PyVectorValueError(
+                f"Join expectation '{expect}' violated: right side key {key} "
+                f"appears {len(occurrences)} times."
+            )
+
+        # -------------------------
+        # 5. Track left-side uniqueness if needed
+        # -------------------------
+        if check_left_unique:
+            left_seen = set()
+
+        # -------------------------
+        # 6. Allocate result columns
+        # -------------------------
+        total_cols = len(left_cols_data) + len(right_cols_data)
+        result = [[] for _ in range(total_cols)]
+
+        # -------------------------
+        # 7. Join loop (left-outer)
+        # -------------------------
         for l_idx in range(left_nrows):
             key = tuple(left_keys_data[k][l_idx] for k in range(pk_len))
+
+            if check_left_unique:
+                if key in left_seen:
+                    raise PyVectorValueError(
+                        f"Join expectation '{expect}' violated: left side key {key} "
+                        f"appears multiple times."
+                    )
+                left_seen.add(key)
+
             matches = right_index.get(key)
-            
+
             if matches:
                 for r_idx in matches:
-                    # Match found: Append Left + Right
-                    for i, col_data in enumerate(left_cols_data):
-                        result_data[i].append(col_data[l_idx])
-                    offset = len(left_cols_data)
-                    for i, col_data in enumerate(right_cols_data):
-                        result_data[offset + i].append(col_data[r_idx])
+                    # left side
+                    for i, coldata in enumerate(left_cols_data):
+                        result[i].append(coldata[l_idx])
+                    # right side
+                    base = len(left_cols_data)
+                    for j, coldata in enumerate(right_cols_data):
+                        result[base + j].append(coldata[r_idx])
             else:
-                # No match: Append Left + None
-                for i, col_data in enumerate(left_cols_data):
-                    result_data[i].append(col_data[l_idx])
-                offset = len(left_cols_data)
-                for i in range(len(right_cols_data)):
-                    result_data[offset + i].append(None)
+                # left row + None placeholders
+                for i, coldata in enumerate(left_cols_data):
+                    result[i].append(coldata[l_idx])
+                base = len(left_cols_data)
+                for j in range(len(right_cols_data)):
+                    result[base + j].append(None)
 
-        # 4. Wrap in PyTable
+        # -------------------------
+        # 8. Wrap into PyVectors
+        # -------------------------
         res_cols = []
-        # Re-wrap Left Columns
-        for i, col in enumerate(self._impl._data):
-            res_cols.append(PyVector(result_data[i], name=col.name))
-        # Re-wrap Right Columns
-        offset = len(self._impl._data)
-        for i, col in enumerate(other._impl._data):
-            res_cols.append(PyVector(result_data[offset+i], name=col.name))
-            
+        idx = 0
+
+        # left columns
+        for col in left_cols:
+            res_cols.append(PyVector(result[idx], name=col.name))
+            idx += 1
+
+        # right columns
+        for col in right_cols:
+            res_cols.append(PyVector(result[idx], name=col.name))
+            idx += 1
+
         return PyTable(res_cols)
 
 
     def inner_join(self, other, left_on, right_on, expect='many_to_one'):
-        # 1. Setup
-        pairs = self._validate_join_keys(other, left_on, right_on)
-        # Extract RAW DATA tuples for speed
-        left_keys_data = [col._impl._data for col, _ in pairs]
-        right_keys_data = [col._impl._data for _, col in pairs]
-        
-        left_cols_data = [c._impl._data for c in self._impl._data]
-        right_cols_data = [c._impl._data for c in other._impl._data]
-        
-        left_nrows = self._length
-        right_nrows = len(other) # or other._length
-        
-        # 2. Build Hash Map (Right)
-        right_index = {}
-        pk_len = len(right_keys_data)
-        
-        for r_idx in range(right_nrows):
-            key = tuple(right_keys_data[k][r_idx] for k in range(pk_len))
-            if key not in right_index:
-                right_index[key] = []
-            right_index[key].append(r_idx)
-            
-        # 3. Join
-        result_data = [[] for _ in range(len(left_cols_data) + len(right_cols_data))]
-        
-        for l_idx in range(left_nrows):
-            key = tuple(left_keys_data[k][l_idx] for k in range(pk_len))
-            matches = right_index.get(key)
-            
-            if matches:
-                for r_idx in matches:
-                    # Append Left
-                    for i, col_data in enumerate(left_cols_data):
-                        result_data[i].append(col_data[l_idx])
-                    # Append Right
-                    offset = len(left_cols_data)
-                    for i, col_data in enumerate(right_cols_data):
-                        result_data[offset + i].append(col_data[r_idx])
+        # -------------------------
+        # 1. Validate cardinality expectation
+        # -------------------------
+        if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
+            raise PyVectorValueError(
+                f"Invalid expect='{expect}'. Must be one of "
+                "'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
+            )
 
-        # 4. Wrap
-        res_cols = []
-        # Left names
-        for i, col in enumerate(self._impl._data):
-            res_cols.append(PyVector(result_data[i], name=col.name))
-        # Right names
-        offset = len(self._impl._data)
-        for i, col in enumerate(other._impl._data):
-            res_cols.append(PyVector(result_data[offset+i], name=col.name))
-            
-        return PyTable(res_cols)
+        check_right_unique = expect in ('one_to_one', 'many_to_one')
+        check_left_unique  = expect in ('one_to_one', 'one_to_many')
 
-    def full_join(self, other, left_on, right_on):
-        # 1. Setup
+        # -------------------------
+        # 2. Resolve join key columns
+        # -------------------------
         pairs = self._validate_join_keys(other, left_on, right_on)
-        
-        # Access raw data
-        left_keys_data = [col._impl._data for col, _ in pairs]
+
+        # Raw data access for speed (your new pattern)
+        left_keys_data  = [col._impl._data for col, _ in pairs]
         right_keys_data = [col._impl._data for _, col in pairs]
-        
-        left_cols_data = [c._impl._data for c in self._impl._data]
-        right_cols_data = [c._impl._data for c in other._impl._data]
-        
-        left_nrows = self._length
+
+        pk_len = len(left_keys_data)
+
+        # Underlying data columns
+        left_cols      = self._impl._data
+        right_cols     = other._impl._data
+        left_cols_data  = [c._impl._data for c in left_cols]
+        right_cols_data = [c._impl._data for c in right_cols]
+
+        left_nrows  = len(self)
         right_nrows = len(other)
-        
-        # 2. Build Hash Map (Right)
+
+        # -------------------------
+        # 3. Build RIGHT hash index
+        # -------------------------
         right_index = {}
-        pk_len = len(right_keys_data)
-        
+        if check_right_unique:
+            duplicates = {}
+
         for r_idx in range(right_nrows):
             key = tuple(right_keys_data[k][r_idx] for k in range(pk_len))
-            if key not in right_index:
-                right_index[key] = []
-            right_index[key].append(r_idx)
-            
-        # Track which right rows we have matched
-        right_matches_visited = set()
-        
-        # 3. Join Loop (Left Scan)
-        result_data = [[] for _ in range(len(left_cols_data) + len(right_cols_data))]
-        
+            bucket = right_index.get(key)
+            if bucket is None:
+                right_index[key] = [r_idx]
+            else:
+                bucket.append(r_idx)
+                if check_right_unique:
+                    duplicates[key] = bucket
+
+        # Enforce right uniqueness
+        if check_right_unique and duplicates:
+            key, occ = next(iter(duplicates.items()))
+            raise PyVectorValueError(
+                f"Join expectation '{expect}' violated: right key {key} "
+                f"appears {len(occ)} times."
+            )
+
+        # -------------------------
+        # 4. Track LEFT uniqueness if needed
+        # -------------------------
+        if check_left_unique:
+            left_seen = set()
+
+        # -------------------------
+        # 5. Allocate result columns
+        # -------------------------
+        total_cols = len(left_cols_data) + len(right_cols_data)
+        result = [[] for _ in range(total_cols)]
+
+        # -------------------------
+        # 6. Perform INNER JOIN
+        # -------------------------
         for l_idx in range(left_nrows):
             key = tuple(left_keys_data[k][l_idx] for k in range(pk_len))
+
+            if check_left_unique:
+                if key in left_seen:
+                    raise PyVectorValueError(
+                        f"Join expectation '{expect}' violated: left key {key} "
+                        f"appears more than once."
+                    )
+                left_seen.add(key)
+
             matches = right_index.get(key)
-            
+            if not matches:
+                continue  # inner join → skip unmatched
+
+            for r_idx in matches:
+                # left side
+                for i, coldata in enumerate(left_cols_data):
+                    result[i].append(coldata[l_idx])
+
+                # right side
+                base = len(left_cols_data)
+                for j, coldata in enumerate(right_cols_data):
+                    result[base + j].append(coldata[r_idx])
+
+        # -------------------------
+        # 7. Empty result → empty table
+        # -------------------------
+        if all(len(col) == 0 for col in result):
+            return PyTable([])
+
+        # -------------------------
+        # 8. Wrap into PyVectors
+        # -------------------------
+        res_cols = []
+        idx = 0
+
+        # left columns
+        for col in left_cols:
+            res_cols.append(PyVector(result[idx], name=col.name))
+            idx += 1
+
+        # right columns
+        for col in right_cols:
+            res_cols.append(PyVector(result[idx], name=col.name))
+            idx += 1
+
+        return PyTable(res_cols)
+
+
+    def full_join(self, other, left_on, right_on, expect='many_to_many'):
+        # -------------------------
+        # 1. Validate expectation
+        # -------------------------
+        if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
+            raise PyVectorValueError(
+                f"Invalid expect='{expect}'. Must be one of "
+                "'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
+            )
+
+        check_right_unique = expect in ('one_to_one', 'many_to_one')
+        check_left_unique  = expect in ('one_to_one', 'one_to_many')
+
+        # -------------------------
+        # 2. Resolve join keys
+        # -------------------------
+        pairs = self._validate_join_keys(other, left_on, right_on)
+
+        left_keys_data  = [col._impl._data for col, _ in pairs]
+        right_keys_data = [col._impl._data for _, col in pairs]
+        pk_len = len(left_keys_data)
+
+        # Raw access to columns (fast-path)
+        left_cols  = self._impl._data
+        right_cols = other._impl._data
+
+        left_cols_data  = [c._impl._data for c in left_cols]
+        right_cols_data = [c._impl._data for c in right_cols]
+
+        left_nrows  = len(self)
+        right_nrows = len(other)
+
+        # -------------------------
+        # 3. Build RIGHT index
+        # -------------------------
+        right_index = {}
+        if check_right_unique:
+            duplicates = {}
+
+        for r_idx in range(right_nrows):
+            key = tuple(right_keys_data[k][r_idx] for k in range(pk_len))
+
+            bucket = right_index.get(key)
+            if bucket is None:
+                right_index[key] = [r_idx]
+            else:
+                bucket.append(r_idx)
+                if check_right_unique:
+                    duplicates[key] = bucket
+
+        # Enforce right-side uniqueness
+        if check_right_unique and duplicates:
+            key, occ = next(iter(duplicates.items()))
+            raise PyVectorValueError(
+                f"Join expectation '{expect}' violated: right key {key} "
+                f"appears {len(occ)} times."
+            )
+
+        # -------------------------
+        # 4. Left-side uniqueness + track right matches
+        # -------------------------
+        if check_left_unique:
+            left_seen = set()
+
+        matched_right = set()
+        matched_right_add = matched_right.add
+
+        # -------------------------
+        # 5. Allocate result columns
+        # -------------------------
+        total_cols = len(left_cols_data) + len(right_cols_data)
+        result = [[] for _ in range(total_cols)]
+
+        # -------------------------
+        # 6. Process LEFT table (outer join left side)
+        # -------------------------
+        for l_idx in range(left_nrows):
+            key = tuple(left_keys_data[k][l_idx] for k in range(pk_len))
+
+            # enforce left cardinality rule
+            if check_left_unique:
+                if key in left_seen:
+                    raise PyVectorValueError(
+                        f"Join expectation '{expect}' violated: left key {key} appears more than once."
+                    )
+                left_seen.add(key)
+
+            matches = right_index.get(key)
+
             if matches:
                 for r_idx in matches:
-                    right_matches_visited.add(r_idx)
-                    # Match: Append Left + Right
-                    for i, col_data in enumerate(left_cols_data):
-                        result_data[i].append(col_data[l_idx])
-                    offset = len(left_cols_data)
-                    for i, col_data in enumerate(right_cols_data):
-                        result_data[offset + i].append(col_data[r_idx])
+                    matched_right_add(r_idx)
+
+                    # left columns
+                    for i, coldata in enumerate(left_cols_data):
+                        result[i].append(coldata[l_idx])
+
+                    # right columns
+                    base = len(left_cols_data)
+                    for j, coldata in enumerate(right_cols_data):
+                        result[base + j].append(coldata[r_idx])
             else:
-                # No Match: Append Left + None
-                for i, col_data in enumerate(left_cols_data):
-                    result_data[i].append(col_data[l_idx])
-                offset = len(left_cols_data)
-                for i in range(len(right_cols_data)):
-                    result_data[offset + i].append(None)
+                # no match on right → None placeholders
+                for i, coldata in enumerate(left_cols_data):
+                    result[i].append(coldata[l_idx])
+                base = len(left_cols_data)
+                for j in range(len(right_cols_data)):
+                    result[base + j].append(None)
 
-        # 4. Right Scan (Append remaining unmatched right rows)
+        # -------------------------
+        # 7. Append unmatched RIGHT rows
+        # -------------------------
         for r_idx in range(right_nrows):
-            if r_idx not in right_matches_visited:
-                # Append None + Right
+            if r_idx not in matched_right:
+                # left side = None
                 for i in range(len(left_cols_data)):
-                    result_data[i].append(None)
-                offset = len(left_cols_data)
-                for i, col_data in enumerate(right_cols_data):
-                    result_data[offset + i].append(col_data[r_idx])
+                    result[i].append(None)
 
-        # 5. Wrap
+                # right side = actual values
+                base = len(left_cols_data)
+                for j, coldata in enumerate(right_cols_data):
+                    result[base + j].append(coldata[r_idx])
+
+        # -------------------------
+        # 8. Wrap into PyVectors
+        # -------------------------
         res_cols = []
-        for i, col in enumerate(self._impl._data):
-            res_cols.append(PyVector(result_data[i], name=col.name))
-        offset = len(self._impl._data)
-        for i, col in enumerate(other._impl._data):
-            res_cols.append(PyVector(result_data[offset+i], name=col.name))
-            
+        idx = 0
+
+        # left
+        for col in left_cols:
+            res_cols.append(PyVector(result[idx], name=col.name))
+            idx += 1
+
+        # right
+        for col in right_cols:
+            res_cols.append(PyVector(result[idx], name=col.name))
+            idx += 1
+
         return PyTable(res_cols)
+
 
     def aggregate(
-            self,
-            over,
-            sum_over=None,
-            mean_over=None,
-            min_over=None,
-            max_over=None,
-            count_over=None,
-            apply=None,
-        ):
-            if isinstance(over, PyVector): over = [over]
-            
-            # 1. Access RAW data for keys (Fastest access)
-            over_data = [c._impl._data for c in over]
-            nrows = self._length
-            pk_len = len(over)
-            
-            # 2. Build Groups (Key -> List of Indices)
-            # This is unavoidable overhead in pure Python, but dicts are fast.
-            groups = {}
-            for idx in range(nrows):
-                key = tuple(over_data[k][idx] for k in range(pk_len))
-                if key not in groups:
-                    groups[key] = []
-                groups[key].append(idx)
-            
-            result_cols = []
-            group_keys = list(groups.keys()) # Stable ordering based on insertion
+        self,
+        over,
+        sum_over=None,
+        mean_over=None,
+        min_over=None,
+        max_over=None,
+        count_over=None,
+        stdev_over=None,     # NEW
+        apply=None,
+    ):
+        from .errors import PyVectorValueError
+        import math
 
-            # 3. Reconstruct Partition Keys
-            for k_idx, k_col in enumerate(over):
-                vals = [gk[k_idx] for gk in group_keys]
-                result_cols.append(PyVector(vals, name=k_col.name))
+        # ------------------------------------------------------------------
+        # 1. Normalize partition keys
+        # ------------------------------------------------------------------
+        if isinstance(over, PyVector):
+            over = [over]
 
-            # --------------------------------------------------------
-            # 4. Aggregations (Unrolled Loops - No Lambdas, No Lists)
-            # --------------------------------------------------------
+        nrows = self._length
 
-            # --- SUM ---
-            if sum_over:
-                if not isinstance(sum_over, list): sum_over = [sum_over]
-                for col in sum_over:
-                    raw = col._impl._data
-                    out = []
-                    for gk in group_keys:
-                        indices = groups[gk]
-                        # Inline sum: No list allocation
-                        total = 0
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                total += v
-                        out.append(total)
-                    
-                    name = f"{col.name}_sum" if col.name else "sum"
-                    result_cols.append(PyVector(out, name=name))
+        # Partition key length check
+        for k in over:
+            if len(k) != nrows:
+                # required by tests
+                raise ValueError("Partition key length mismatch")
 
-            # --- COUNT ---
-            if count_over:
-                if not isinstance(count_over, list): count_over = [count_over]
-                for col in count_over:
-                    raw = col._impl._data
-                    out = []
-                    for gk in group_keys:
-                        indices = groups[gk]
-                        # Inline count
-                        cnt = 0
-                        for i in indices:
-                            if raw[i] is not None:
-                                cnt += 1
-                        out.append(cnt)
+        # Convert single-or-list args → list
+        def _ensure_list(x):
+            if x is None:
+                return []
+            return x if isinstance(x, list) else [x]
 
-                    name = f"{col.name}_count" if col.name else "count"
-                    result_cols.append(PyVector(out, name=name))
+        sum_cols   = _ensure_list(sum_over)
+        mean_cols  = _ensure_list(mean_over)
+        min_cols   = _ensure_list(min_over)
+        max_cols   = _ensure_list(max_over)
+        count_cols = _ensure_list(count_over)
+        stdev_cols = _ensure_list(stdev_over)
 
-            # --- MEAN ---
-            if mean_over:
-                if not isinstance(mean_over, list): mean_over = [mean_over]
-                for col in mean_over:
-                    raw = col._impl._data
-                    out = []
-                    for gk in group_keys:
-                        indices = groups[gk]
-                        # Inline mean
-                        total = 0
-                        cnt = 0
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                total += v
-                                cnt += 1
-                        out.append(total / cnt if cnt > 0 else None)
+        # Collect all aggregation columns for length checking
+        agg_cols = sum_cols + mean_cols + min_cols + max_cols + count_cols + stdev_cols
 
-                    name = f"{col.name}_mean" if col.name else "mean"
-                    result_cols.append(PyVector(out, name=name))
+        if apply:
+            for col, _func in apply.values():
+                agg_cols.append(col)
 
-            # --- MIN ---
-            if min_over:
-                if not isinstance(min_over, list): min_over = [min_over]
-                for col in min_over:
-                    raw = col._impl._data
-                    out = []
-                    for gk in group_keys:
-                        indices = groups[gk]
-                        # Inline min
-                        curr_min = None
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                if curr_min is None or v < curr_min:
-                                    curr_min = v
-                        out.append(curr_min)
+        # Aggregation column length checks
+        for col in agg_cols:
+            if len(col) != nrows:
+                raise ValueError("Aggregation column length mismatch")
 
-                    name = f"{col.name}_min" if col.name else "min"
-                    result_cols.append(PyVector(out, name=name))
+        # ------------------------------------------------------------------
+        # 2. Build groups: key -> list of row indices
+        # ------------------------------------------------------------------
+        over_data = [c._impl._data for c in over]
+        pk_len = len(over)
 
-            # --- MAX ---
-            if max_over:
-                if not isinstance(max_over, list): max_over = [max_over]
-                for col in max_over:
-                    raw = col._impl._data
-                    out = []
-                    for gk in group_keys:
-                        indices = groups[gk]
-                        # Inline max
-                        curr_max = None
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                if curr_max is None or v > curr_max:
-                                    curr_max = v
-                        out.append(curr_max)
+        groups = {}
+        for idx in range(nrows):
+            key = tuple(over_data[k][idx] for k in range(pk_len))
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(idx)
 
-                    name = f"{col.name}_max" if col.name else "max"
-                    result_cols.append(PyVector(out, name=name))
+        group_keys = list(groups.keys())  # stable order for deterministic output
+        result_cols = []
 
-            # --- CUSTOM APPLY (The only place we allow list allocs) ---
-            if apply:
-                for name, (col, func) in apply.items():
-                    raw = col._impl._data
-                    out = []
-                    for gk in group_keys:
-                        indices = groups[gk]
-                        # We MUST allocate here because we don't know what func does
-                        subset = [raw[i] for i in indices]
-                        out.append(func(subset))
-                    result_cols.append(PyVector(out, name=name))
+        # ------------------------------------------------------------------
+        # 3. Reconstruct partition-key columns
+        # ------------------------------------------------------------------
+        for k_idx, k_col in enumerate(over):
+            vals = [gk[k_idx] for gk in group_keys]
+            result_cols.append(PyVector(vals, name=k_col.name))
 
-            return PyTable(result_cols)
+        # ------------------------------------------------------------------
+        # 4. Aggregations
+        # ------------------------------------------------------------------
 
+        # SUM
+        for col in sum_cols:
+            raw = col._impl._data
+            out = []
+            for gk in group_keys:
+                total = 0
+                for i in groups[gk]:
+                    v = raw[i]
+                    if v is not None:
+                        total += v
+                out.append(total)
+            name = f"{col.name}_sum" if col.name else "sum"
+            result_cols.append(PyVector(out, name=name))
+
+        # COUNT
+        for col in count_cols:
+            raw = col._impl._data
+            out = []
+            for gk in group_keys:
+                cnt = 0
+                for i in groups[gk]:
+                    if raw[i] is not None:
+                        cnt += 1
+                out.append(cnt)
+            name = f"{col.name}_count" if col.name else "count"
+            result_cols.append(PyVector(out, name=name))
+
+        # MEAN
+        for col in mean_cols:
+            raw = col._impl._data
+            out = []
+            for gk in group_keys:
+                total = 0
+                cnt = 0
+                for i in groups[gk]:
+                    v = raw[i]
+                    if v is not None:
+                        total += v
+                        cnt += 1
+                out.append(total / cnt if cnt else None)
+            name = f"{col.name}_mean" if col.name else "mean"
+            result_cols.append(PyVector(out, name=name))
+
+        # MIN
+        for col in min_cols:
+            raw = col._impl._data
+            out = []
+            for gk in group_keys:
+                curr_min = None
+                for i in groups[gk]:
+                    v = raw[i]
+                    if v is not None and (curr_min is None or v < curr_min):
+                        curr_min = v
+                out.append(curr_min)
+            name = f"{col.name}_min" if col.name else "min"
+            result_cols.append(PyVector(out, name=name))
+
+        # MAX
+        for col in max_cols:
+            raw = col._impl._data
+            out = []
+            for gk in group_keys:
+                curr_max = None
+                for i in groups[gk]:
+                    v = raw[i]
+                    if v is not None and (curr_max is None or v > curr_max):
+                        curr_max = v
+                out.append(curr_max)
+            name = f"{col.name}_max" if col.name else "max"
+            result_cols.append(PyVector(out, name=name))
+
+        # STDEV (sample stdev, n-1)
+        for col in stdev_cols:
+            raw = col._impl._data
+            out = []
+            for gk in group_keys:
+                vals = [raw[i] for i in groups[gk] if raw[i] is not None]
+                m = len(vals)
+                if m < 2:
+                    out.append(None)
+                    continue
+                avg = sum(vals) / m
+                var = sum((x - avg) ** 2 for x in vals) / (m - 1)
+                out.append(math.sqrt(var))
+            name = f"{col.name}_stdev" if col.name else "stdev"
+            result_cols.append(PyVector(out, name=name))
+
+        # CUSTOM APPLY
+        if apply:
+            for name, (col, func) in apply.items():
+                raw = col._impl._data
+                out = []
+                for gk in group_keys:
+                    subset = [raw[i] for i in groups[gk]]
+                    out.append(func(subset))
+                result_cols.append(PyVector(out, name=name))
+
+        return PyTable(result_cols)
 
     def window(
-            self,
-            over,
-            sum_over=None,
-            mean_over=None,
-            min_over=None,
-            max_over=None,
-            count_over=None,
-            apply=None,
-        ):
-            """
-            Performs aggregations over groups but preserves original row count 
-            (broadcasting results back to all rows in the group).
-            """
-            if isinstance(over, PyVector): over = [over]
-            
-            # 1. Access RAW data for keys
-            over_data = [c._impl._data for c in over]
-            nrows = self._length
-            pk_len = len(over)
-            
-            # 2. Build Groups (Key -> List of Indices)
-            groups = {}
-            for idx in range(nrows):
-                key = tuple(over_data[k][idx] for k in range(pk_len))
-                if key not in groups:
-                    groups[key] = []
-                groups[key].append(idx)
-            
-            result_cols = []
+        self,
+        over,
+        sum_over=None,
+        mean_over=None,
+        min_over=None,
+        max_over=None,
+        count_over=None,
+        stdev_over=None,      # NEW
+        apply=None,
+    ):
+        """
+        Windowed aggregations:
+        Groups by `over`, computes aggregates once per group,
+        then broadcasts the result back to all rows in that group.
+        """
+        from .errors import PyVectorValueError
+        import math
 
-            # Helper to broadcast value to all indices in the group
-            def broadcast(indices, value, target_list):
+        # ---------------------------------------------------------
+        # 1. Normalize partition keys
+        # ---------------------------------------------------------
+        if isinstance(over, PyVector):
+            over = [over]
+
+        nrows = self._length
+
+        # Partition key length check
+        for k in over:
+            if len(k) != nrows:
+                raise ValueError("Partition key length mismatch")
+
+        # Utility to treat scalar-or-list aggregation args the same
+        def _ensure_list(x):
+            if x is None:
+                return []
+            return x if isinstance(x, list) else [x]
+
+        sum_cols   = _ensure_list(sum_over)
+        mean_cols  = _ensure_list(mean_over)
+        min_cols   = _ensure_list(min_over)
+        max_cols   = _ensure_list(max_over)
+        count_cols = _ensure_list(count_over)
+        stdev_cols = _ensure_list(stdev_over)
+
+        # Collect aggregation columns to validate lengths
+        agg_cols = sum_cols + mean_cols + min_cols + max_cols + count_cols + stdev_cols
+
+        if apply:
+            for col, _func in apply.values():
+                agg_cols.append(col)
+
+        # Aggregation column length checks
+        for col in agg_cols:
+            if len(col) != nrows:
+                raise ValueError("Aggregation column length mismatch")
+
+        # ---------------------------------------------------------
+        # 2. Build groups (key → list of row indices)
+        # ---------------------------------------------------------
+        over_data = [c._impl._data for c in over]
+        pk_len = len(over)
+
+        groups = {}
+        for idx in range(nrows):
+            key = tuple(over_data[k][idx] for k in range(pk_len))
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(idx)
+
+        # ---------------------------------------------------------
+        # 3. Setup for output
+        # ---------------------------------------------------------
+        result_cols = []
+
+        def broadcast(indices, value, out):
+            for i in indices:
+                out[i] = value
+
+        # ---------------------------------------------------------
+        # 4. Aggregations
+        # ---------------------------------------------------------
+
+        # SUM
+        for col in sum_cols:
+            raw = col._impl._data
+            out = [None] * nrows
+            for indices in groups.values():
+                total = 0
                 for i in indices:
-                    target_list[i] = value
+                    v = raw[i]
+                    if v is not None:
+                        total += v
+                broadcast(indices, total, out)
+            name = f"{col.name}_sum" if col.name else "sum"
+            result_cols.append(PyVector(out, name=name))
 
-            # --- SUM ---
-            if sum_over:
-                if not isinstance(sum_over, list): sum_over = [sum_over]
-                for col in sum_over:
-                    raw = col._impl._data
-                    out = [None] * nrows
-                    for indices in groups.values():
-                        total = 0
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                total += v
-                        broadcast(indices, total, out)
-                    
-                    name = f"{col.name}_sum" if col.name else "sum"
-                    result_cols.append(PyVector(out, name=name))
+        # COUNT
+        for col in count_cols:
+            raw = col._impl._data
+            out = [None] * nrows
+            for indices in groups.values():
+                cnt = 0
+                for i in indices:
+                    if raw[i] is not None:
+                        cnt += 1
+                broadcast(indices, cnt, out)
+            name = f"{col.name}_count" if col.name else "count"
+            result_cols.append(PyVector(out, name=name))
 
-            # --- COUNT ---
-            if count_over:
-                if not isinstance(count_over, list): count_over = [count_over]
-                for col in count_over:
-                    raw = col._impl._data
-                    out = [None] * nrows
-                    for indices in groups.values():
-                        cnt = 0
-                        for i in indices:
-                            if raw[i] is not None:
-                                cnt += 1
-                        broadcast(indices, cnt, out)
+        # MEAN
+        for col in mean_cols:
+            raw = col._impl._data
+            out = [None] * nrows
+            for indices in groups.values():
+                total = 0
+                cnt = 0
+                for i in indices:
+                    v = raw[i]
+                    if v is not None:
+                        total += v
+                        cnt += 1
+                val = total / cnt if cnt else None
+                broadcast(indices, val, out)
+            name = f"{col.name}_mean" if col.name else "mean"
+            result_cols.append(PyVector(out, name=name))
 
-                    name = f"{col.name}_count" if col.name else "count"
-                    result_cols.append(PyVector(out, name=name))
+        # MIN
+        for col in min_cols:
+            raw = col._impl._data
+            out = [None] * nrows
+            for indices in groups.values():
+                curr_min = None
+                for i in indices:
+                    v = raw[i]
+                    if v is not None and (curr_min is None or v < curr_min):
+                        curr_min = v
+                broadcast(indices, curr_min, out)
+            name = f"{col.name}_min" if col.name else "min"
+            result_cols.append(PyVector(out, name=name))
 
-            # --- MEAN ---
-            if mean_over:
-                if not isinstance(mean_over, list): mean_over = [mean_over]
-                for col in mean_over:
-                    raw = col._impl._data
-                    out = [None] * nrows
-                    for indices in groups.values():
-                        total = 0
-                        cnt = 0
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                total += v
-                                cnt += 1
-                        val = total / cnt if cnt > 0 else None
-                        broadcast(indices, val, out)
+        # MAX
+        for col in max_cols:
+            raw = col._impl._data
+            out = [None] * nrows
+            for indices in groups.values():
+                curr_max = None
+                for i in indices:
+                    v = raw[i]
+                    if v is not None and (curr_max is None or v > curr_max):
+                        curr_max = v
+                broadcast(indices, curr_max, out)
+            name = f"{col.name}_max" if col.name else "max"
+            result_cols.append(PyVector(out, name=name))
 
-                    name = f"{col.name}_mean" if col.name else "mean"
-                    result_cols.append(PyVector(out, name=name))
+        # STDEV (sample stdev)
+        for col in stdev_cols:
+            raw = col._impl._data
+            out = [None] * nrows
+            for indices in groups.values():
+                vals = [raw[i] for i in indices if raw[i] is not None]
+                m = len(vals)
+                if m < 2:
+                    val = None
+                else:
+                    avg = sum(vals) / m
+                    var = sum((x - avg) ** 2 for x in vals) / (m - 1)
+                    val = math.sqrt(var)
+                broadcast(indices, val, out)
+            name = f"{col.name}_stdev" if col.name else "stdev"
+            result_cols.append(PyVector(out, name=name))
 
-            # --- MIN ---
-            if min_over:
-                if not isinstance(min_over, list): min_over = [min_over]
-                for col in min_over:
-                    raw = col._impl._data
-                    out = [None] * nrows
-                    for indices in groups.values():
-                        curr_min = None
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                if curr_min is None or v < curr_min:
-                                    curr_min = v
-                        broadcast(indices, curr_min, out)
+        # CUSTOM APPLY
+        if apply:
+            for name, (col, func) in apply.items():
+                raw = col._impl._data
+                out = [None] * nrows
+                for indices in groups.values():
+                    subset = [raw[i] for i in indices]
+                    val = func(subset)
+                    broadcast(indices, val, out)
+                result_cols.append(PyVector(out, name=name))
 
-                    name = f"{col.name}_min" if col.name else "min"
-                    result_cols.append(PyVector(out, name=name))
-
-            # --- MAX ---
-            if max_over:
-                if not isinstance(max_over, list): max_over = [max_over]
-                for col in max_over:
-                    raw = col._impl._data
-                    out = [None] * nrows
-                    for indices in groups.values():
-                        curr_max = None
-                        for i in indices:
-                            v = raw[i]
-                            if v is not None:
-                                if curr_max is None or v > curr_max:
-                                    curr_max = v
-                        broadcast(indices, curr_max, out)
-
-                    name = f"{col.name}_max" if col.name else "max"
-                    result_cols.append(PyVector(out, name=name))
-
-            # --- CUSTOM APPLY ---
-            if apply:
-                for name, (col, func) in apply.items():
-                    raw = col._impl._data
-                    out = [None] * nrows
-                    for indices in groups.values():
-                        subset = [raw[i] for i in indices]
-                        val = func(subset)
-                        broadcast(indices, val, out)
-                    result_cols.append(PyVector(out, name=name))
-
-            return PyTable(result_cols)
+        return PyTable(result_cols)
