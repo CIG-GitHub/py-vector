@@ -1166,8 +1166,12 @@ class PyVector():
 			# It's a method -> Return the proxy to wait for ()
 			return MethodProxy(self, name)
 		else:
-			# It's a property/descriptor (like .year) -> Compute immediately
-			return PyVector(tuple(getattr(x, name) for x in self._underlying))
+			# property (non-callable attribute)
+			return PyVector(tuple(
+				getattr(x, name) if x is not None else None
+				for x in self._underlying
+			))
+
 
 class _PyFloat(PyVector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):

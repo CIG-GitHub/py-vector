@@ -119,3 +119,26 @@ def test_nonexistent_attribute_raises():
 	except AttributeError as e:
 		assert "date" in str(e)
 		assert "nonexistent_method" in str(e)
+
+def test_methodproxy_string_with_none():
+    v = PyVector(["a", None, "b"])
+    out = v.upper()
+    assert list(out) == ["A", None, "B"]
+
+
+def test_methodproxy_date_property_with_none():
+    v = PyVector([date(2024, 1, 5), None, date(2020, 7, 1)])
+    out = v.year
+    assert list(out) == [2024, None, 2020]
+
+
+def test_methodproxy_date_method_with_none():
+    v = PyVector([date(2024, 1, 5), None])
+    out = v.isoformat()
+    assert list(out) == ["2024-01-05", None]
+
+
+def test_methodproxy_string_property_none():
+    v = PyVector(["abc", None, "DEF"])
+    out = v.islower()
+    assert list(out) == [True, None, False]
