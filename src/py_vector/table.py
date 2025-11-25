@@ -9,53 +9,50 @@ def _missing_col_error(name, context="PyTable"):
 
 
 class _RowView:
-	"""Lightweight row view for iterating over table rows with attribute access."""
-	__slots__ = ('_cols', '_column_map', '_index')
-	
-	def __init__(self, table, index):
-		# Cache direct handles to underlying data (bypasses PyVector method dispatch)
-		self._cols = [col._underlying for col in table._underlying]
-		self._column_map = table._build_column_map()
-		self._index = index
-	
-	def set_index(self, index):
-		"""Reuse this row view for a different index (avoids allocation during iteration)."""
-		self._index = index
-		return self
-	
-	def __getattr__(self, attr):
-		"""Access column values by sanitized attribute name."""
-		col_idx = self._column_map.get(attr.lower())
-		if col_idx is None:
-			raise AttributeError(f"Row has no attribute '{attr}'")
-		return self._cols[col_idx][self._index]
-	
-	def __getitem__(self, key):
-		"""Access column values by index or name (optimized for int hot path)."""
-		# Fast path: integer indexing (no isinstance check overhead)
-		try:
-			return self._cols[key][self._index]
-		except TypeError:
-			# Fallback: string indexing
-			if isinstance(key, str):
-				return getattr(self, key)
-			raise TypeError(f"Row indices must be int or str, not {type(key).__name__}")
-	
-	def __iter__(self):
-		"""Iterate over column values in this row."""
-		idx = self._index
-		for col in self._cols:
-			yield col[idx]
-	
-	def __len__(self):
-		"""Return number of columns."""
-		return len(self._cols)
-	
-	def __repr__(self):
-		"""Return a simple representation of the row."""
-		idx = self._index
-		values = [repr(col[idx]) for col in self._cols]
-		return f"Row({idx}: {', '.join(values)})"
+    """
+    Lightweight row view for iterating over table rows with attribute access.
+    """
+    __slots__ = ('_table', '_column_map', '_index')
+    
+    def __init__(self, table, index):
+        self._table = table
+        self._index = index
+        self._column_map = table._build_column_map()
+    
+    def set_index(self, index):
+        self._index = index
+        return self
+    
+    def size(self):
+        """Return the size of the row (which is the number of columns)."""
+        return (len(self._table._underlying),)
+
+    def __getattr__(self, attr):
+        col_idx = self._column_map.get(attr.lower())
+        if col_idx is None:
+            raise AttributeError(f"Row has no attribute '{attr}'")
+        return self._table._underlying[col_idx][self._index]
+    
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._table._underlying[key][self._index]
+        if isinstance(key, str):
+            return getattr(self, key)
+        raise TypeError(f"Row indices must be int or str, not {type(key).__name__}")
+    
+    def __iter__(self):
+        idx = self._index
+        for col in self._table._underlying:
+            yield col[idx]
+    
+    def __len__(self):
+        return len(self._table._underlying)
+    
+    def __repr__(self):
+        idx = self._index
+        # Helper to make the row print nicely
+        values = [repr(col[idx]) for col in self._table._underlying]
+        return f"Row({idx}: {', '.join(values)})"
 
 
 class PyTable(PyVector):
@@ -290,15 +287,14 @@ class PyTable(PyVector):
 				if isinstance(key[1], int):
 					return self.cols(key[1])[key[0]]
 				return self.copy([col[key[0]] for col in self.cols()[key[1]]])
-			return self[key[0]]._underlying[key[1]]
+			# Let the _RowView handle the column lookup (works for int and str)
+			return self[key[0]][key[1]]
 
 		if isinstance(key, int):
 			# Effectively a different input type (single not a list). Returning a value, not a vector.
 			if isinstance(self._underlying[0], PyTable):
 				return self._underlying[key]
-			return PyVector(tuple(col[key] for col in self._underlying),
-				dtype = self._dtype
-			).T
+			return _RowView(self, key)
 
 		if isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable:
 			assert (len(self) == len(key))

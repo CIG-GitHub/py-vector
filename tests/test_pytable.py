@@ -75,8 +75,9 @@ class TestRowAccess:
         col2 = PyVector([4, 5, 6])
         table = PyVector([col1, col2])
         row = table[0]
-        assert isinstance(row, PyVector)
-        assert list(row) == [1, 4]
+        assert len(row) == 2
+        assert row[0] == 1
+        assert row[1] == 4
     
     def test_getitem_row_slice(self):
         col1 = PyVector([1, 2, 3, 4])
