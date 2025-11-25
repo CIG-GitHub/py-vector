@@ -757,7 +757,7 @@ class PyTable(PyVector):
 			)
 		
 		# Prepare left-side uniqueness tracking if needed
-		check_left_unique = expect in ('one_to_one', 'one_to_many')
+		check_left_unique = expect in ('one_to_one', 'many_to_one')
 		if check_left_unique:
 			left_keys_seen = set()
 		
