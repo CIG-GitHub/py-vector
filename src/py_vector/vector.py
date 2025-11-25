@@ -87,18 +87,17 @@ class PyVector():
 	def __new__(cls, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		"""
 		Decide what type of PyVector to create based on contents.
-		
-		Parameters
-		----------
-		initial : iterable
-			Initial values
-		dtype : DataType, type, or None
-			Type specification. Can be DataType instance or Python type (int, float, str)
-		name : str, optional
-			Name for the vector
-		as_row : bool, default False
-			Display as row instead of column
 		"""
+		# If 'initial' is an iterator/generator (consumable), we must materialize it ONCE here.
+		# Otherwise, infer_dtype(initial) consumes it, leaving nothing for __init__.
+		_precomputed_data = None
+		
+		# Check if iterable but not a reusable container (list/tuple/PyVector)
+		# We check specifically for lack of __len__ as a proxy for "is this a generator?"
+		if hasattr(initial, '__iter__') and not isinstance(initial, (list, tuple, PyVector)):
+			initial = tuple(initial)
+			_precomputed_data = initial
+
 		# Check if we're creating a PyTable (all elements are vectors of same length)
 		if initial and all(isinstance(x, PyVector) for x in initial):
 			if len({len(x) for x in initial}) == 1:
@@ -111,9 +110,9 @@ class PyVector():
 			dtype = DataType(dtype)
 		
 		# Infer dtype if not provided
+		# (Safe to run now because 'initial' is definitely a tuple/list/reusable)
 		if dtype is None and initial:
 			dtype = infer_dtype(initial)
-		# Empty vector keeps dtype=None for backwards compatibility
 		
 		# Dispatch to typed subclasses based on inferred dtype
 		target_class = cls
@@ -130,36 +129,33 @@ class PyVector():
 		# Create instance using object.__new__ (bypasses __new__ dispatch)
 		instance = super(PyVector, target_class).__new__(target_class)
 		
-		# Stash dtype on instance for __init__ to use
+		# Stash dtype on instance
 		instance._dtype = dtype
 		
-		# Python will automatically call __init__ after this returns
+		# Attach the materialized data so __init__ doesn't have to re-read (or guess)
+		if _precomputed_data is not None:
+			instance._precomputed_data = _precomputed_data
+		
 		return instance
 
 
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		"""
 		Initialize a new PyVector instance.
-		
-		Parameters
-		----------
-		initial : iterable
-			Initial values
-		dtype : DataType, type, or None
-			Type specification (ignored - already set by __new__)
-		name : str, optional
-			Name for the vector
-		as_row : bool, default False
-			Display as row instead of column
 		"""
-		# dtype already set by __new__, just initialize remaining attributes
 		self._name = None
 		if name is not None:
 			self._name = name
 		self._display_as_row = as_row
 
-		# Convert initial to tuple
-		self._underlying = tuple(initial)
+		# We check self.__dict__ directly to avoid triggering PyTable.__getattr__
+		# which would crash because the table isn't initialized yet.
+		if '_precomputed_data' in self.__dict__:
+			self._underlying = self._precomputed_data
+			del self._precomputed_data # Clean up
+		else:
+			# Standard path: initial was already a list/tuple/dict
+			self._underlying = tuple(initial)
 		
 		# Fingerprint cache + powers
 		self._fp: int | None = None
