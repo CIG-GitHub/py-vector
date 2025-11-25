@@ -55,6 +55,70 @@ class _RowView:
         return f"Row({idx}: {', '.join(values)})"
 
 
+class _FastIterRow:
+    """
+    Performance-optimized row view for iteration.
+    - Binds directly to the underlying tuple pointers at init time.
+    - Removes 'self._table._underlying' lookup overhead per cell.
+    - Uses type() instead of isinstance() for marginal speed gains in hot paths.
+    """
+    __slots__ = ('_raw_cols', '_column_map', '_index')
+    
+    def __init__(self, table, index=0):
+        # SNAPSHOT: Grab the raw tuples directly. 
+        # This is the secret sauce. We bypass the PyVector wrapper entirely.
+        self._raw_cols = [col._underlying for col in table._underlying]
+        full_map = table._build_column_map()
+        self._column_map = {k: v[0] for k, v in full_map.items()}
+        self._index = index
+
+    def set_index(self, index):
+        self._index = index
+        return self
+
+    # --- THE HOT PATH ---
+    def __getitem__(self, key):
+        # Optimization: Most loops use integer indexing or string names.
+        # We inline the logic to avoid method dispatch overhead.
+        
+        # type(x) is int is faster than isinstance(x, int)
+        if type(key) is int:
+             return self._raw_cols[key][self._index]
+             
+        if type(key) is str:
+             return getattr(self, key)
+             
+        # Fallback for slices (rare in tight loops)
+        if isinstance(key, slice):
+            return tuple(self._raw_cols[i][self._index] for i in range(len(self._raw_cols))[key])
+            
+        raise TypeError(f"Indices must be int/str, not {type(key).__name__}")
+
+    def __getattr__(self, attr):
+        # We rely on the pre-computed map for O(1) lookup
+        col_idx = self._column_map.get(attr.lower())
+        if col_idx is None:
+            raise AttributeError(f"Row has no attribute '{attr}'")
+        return self._raw_cols[col_idx][self._index]
+
+    # --- Protocol Support ---
+    def size(self):
+        return (len(self._raw_cols),)
+
+    def __iter__(self):
+        idx = self._index
+        for col in self._raw_cols:
+            yield col[idx]
+
+    def __len__(self):
+        return len(self._raw_cols)
+
+    def __repr__(self):
+        idx = self._index
+        values = [repr(col[idx]) for col in self._raw_cols]
+        return f"Row({idx}: {', '.join(values)})"
+
+
 class PyTable(PyVector):
 	""" Multiple columns of the same length """
 	_length = None
@@ -321,11 +385,19 @@ class PyTable(PyVector):
 			)
 
 	def __iter__(self):
-		"""Iterate over rows using a reusable _RowView for memory efficiency."""
-		row_view = _RowView(self, 0)
-		for i in range(len(self)):
-			row_view.set_index(i)
-			yield row_view
+		"""
+		Iterate over rows using the Fast View.
+		Snapshots data state at start of iteration for performance.
+		"""
+		# Use the WET/Optimized view for loops
+		row_view = _FastIterRow(self, 0)
+		
+		# Cache length locally to avoid self.__len__() call in loop
+		n = len(self)
+		
+		for i in range(n):
+			# No object creation in loop - just index update
+			yield row_view.set_index(i)
 
 	def __repr__(self):
 		from .display import _printr

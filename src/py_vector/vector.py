@@ -1043,18 +1043,28 @@ class PyVector():
 
 
 	def __bool__(self):
-		""" We expect the behavior to mimic that of an empty list or string
-		namely, if the underlying list (tuple) is empty, we return False, otherwise return True.
-
-		The rationale here is that even a typed empty list is empty. Even a typed empty list with
-		a default value is empty.
-		
-		Note: We intentionally allow __bool__ on boolean vectors (returns True if non-empty).
-		The warning about using & instead of 'and' is handled elsewhere.
 		"""
-		if self._underlying:
-			return True
-		return False
+		Standard Python truthiness: returns True if the vector is not empty.
+		
+		Note: Emits a warning because users often mistakenly use 'if vec' 
+		when they mean 'if vec.any()'.
+		"""
+		# 1. The check is simply "is this empty?"
+		is_non_empty = bool(self._underlying)
+
+		# 2. The Warning
+		# We only warn if it IS non-empty, because 'if empty_vec' is rarely a logic bug.
+		if is_non_empty:
+			# Check if this vector is actually a boolean result from a comparison
+			if self._dtype is not None and self._dtype.kind == bool:
+				warnings.warn(
+					"PyVector is being used in a boolean context (e.g., 'if vector:'). "
+					"This checks for emptiness (len > 0), not element-wise truth. "
+					"Use .any() or .all() for element-wise checks.",
+					stacklevel=2
+				)
+
+		return is_non_empty
 
 
 	def __lshift__(self, other):
