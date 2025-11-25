@@ -110,7 +110,7 @@ def test_aggregations_do_not_preserve_name():
 	assert isinstance(v.stdev(), (int, float))
 	
 	# unique() returns a set (no name)
-	assert isinstance(v.unique(), PyVector)
+	assert isinstance(v.unique(), set)
 
 
 def test_2d_aggregations_do_not_preserve_name():
