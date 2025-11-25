@@ -54,9 +54,15 @@ class MethodProxy:
 		self._method_name = method_name
 	
 	def __call__(self, *args, **kwargs):
-		"""Execute the method on each element and return a new PyVector."""
-		return PyVector(tuple(getattr(elem, self._method_name)(*args, **kwargs) 
-						for elem in self._vector._underlying))
+		method = self._method_name
+		results = []
+		for elem in self._vector._underlying:
+			if elem is None:
+				results.append(None)
+			else:
+				results.append(getattr(elem, method)(*args, **kwargs))
+		return PyVector(results)
+
 
 # ============================================================
 # Main backend
@@ -608,6 +614,7 @@ class PyVector():
 					required_dtype = infer_dtype([incompatible])
 					try:
 						self._promote(required_dtype.kind)
+						underlying = self._underlying
 					except PyVectorTypeError:
 						raise PyVectorTypeError(
 							f"Cannot set {required_dtype.kind.__name__} in "
