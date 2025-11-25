@@ -15,7 +15,7 @@ class _RowView:
 	def __init__(self, table, index):
 		# Cache direct handles to underlying data (bypasses PyVector method dispatch)
 		self._cols = [col._underlying for col in table._underlying]
-		self._column_map = table._column_map
+		self._column_map = table._build_column_map()
 		self._index = index
 	
 	def set_index(self, index):
@@ -97,8 +97,6 @@ class PyTable(PyVector):
 				if i < len(self._underlying):
 					self._underlying[i]._name = col_name
 		
-		# Build column map once for fast row iteration
-		self._column_map = self._build_column_map()
 
 	def __len__(self):
 		if not self:
@@ -109,7 +107,6 @@ class PyTable(PyVector):
 
 	def size(self):
 		return (len(self),) + self[0].size()
-
 
 	def _build_column_map(self):
 		"""Build mapping from sanitized column names to column indices.
@@ -138,11 +135,11 @@ class PyTable(PyVector):
 		"""Return list of available attributes including sanitized column names."""
 		# Use object.__dir__ to get instance attributes, then add column names
 		base_attrs = object.__dir__(self)
-		return sorted(set(base_attrs + list(self._column_map.keys())))
+		return sorted(set(base_attrs + list(self._build_column_map().keys())))
 
 	def __getattr__(self, attr):
 		"""Access columns by sanitized attribute name using pre-computed column map."""
-		col_idx = self._column_map.get(attr.lower())
+		col_idx = self._build_column_map().get(attr.lower())
 		if col_idx is not None:
 			return self._underlying[col_idx]
 		
@@ -154,8 +151,6 @@ class PyTable(PyVector):
 		for col in self._underlying:
 			if col._name == old_name:
 				col._name = new_name
-				# Rebuild column map to reflect new name
-				self._column_map = self._build_column_map()
 				return self
 		raise _missing_col_error(old_name)
 	
@@ -190,9 +185,7 @@ class PyTable(PyVector):
 				if col._name == old:
 					col._name = new
 					break
-		
-		# Rebuild column map to reflect new names
-		self._column_map = self._build_column_map()
+
 		return self
 
 	@property
@@ -386,6 +379,38 @@ class PyTable(PyVector):
 			return PyVector((other,),
 				dtype=self._dtype)
 		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
+
+	def __irshift__(self, other):
+		"""
+		In-place column append (t >>= col).
+		Creates a new tuple of columns and rebinds self._underlying.
+		"""
+
+		# Normalize "other" into a tuple of PyVectors
+		if isinstance(other, PyTable):
+			new_cols = tuple(other._underlying)
+		elif isinstance(other, PyVector):
+			new_cols = (other,)
+		elif hasattr(other, "__iter__") and not isinstance(other, (str, bytes)):
+			new_cols = (PyVector(other),)
+		else:
+			new_cols = (PyVector((other,)),)
+
+		# Validate lengths or adopt length if table is empty
+		for col in new_cols:
+			if self._underlying:
+				if len(col) != self._length:
+					raise ValueError(
+						f"Column length {len(col)} does not match table row count {self._length}."
+					)
+			else:
+				self._length = len(col)
+
+		# NEW: rebind tuple (immutability-respecting in-place update)
+		self._underlying = self._underlying + new_cols
+
+		return self
+
 
 	def __lshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first

@@ -149,7 +149,7 @@ class PyVector():
 		# dtype already set by __new__, just initialize remaining attributes
 		self._name = None
 		if name is not None:
-			self.rename(name)
+			self._name = name
 		self._display_as_row = as_row
 
 		# Convert initial to tuple
