@@ -918,7 +918,26 @@ class PyVector():
 		return (num/(len(non_none) - 1 + population))**0.5
 
 	def unique(self):
-		return {x for x in self}
+		seen = set()
+		out = []
+
+		# Fast path: hashable
+		try:
+			for x in self._underlying:
+				if x not in seen:
+					seen.add(x)
+					out.append(x)
+			return PyVector(out)
+		except TypeError:
+			pass   # fall through → slow path
+
+		# Slow path: unhashables
+		out = []
+		for x in self._underlying:
+			if not any(x == y for y in out):
+				out.append(x)
+		return PyVector(out)
+
 
 	def argsort(self):
 		return [i for i, _ in sorted(enumerate(self._underlying), key=lambda x: x[1])]
