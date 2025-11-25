@@ -168,9 +168,9 @@ class PyVector():
 			return tuple()
 		return (len(self),)
 
-	# --------------------------------------------------------
+	#-----------------------------------------------------
 	# Fingerprinting
-	# --------------------------------------------------------
+	#-----------------------------------------------------
 
 	@staticmethod
 	def _hash_element(x: Any) -> int:
@@ -306,7 +306,7 @@ class PyVector():
 	def fillna(self, value):
 		dtype = self.schema()
 
-		# --- Type validate the fill value ---
+		# Type validate the fill value
 		if dtype is not None and value is not None:
 			try:
 				if not isinstance(value, dtype.kind):
@@ -316,13 +316,13 @@ class PyVector():
 					f"fillna: value {value!r} cannot be converted to {dtype.kind.__name__}"
 				)
 
-		# --- Build new data ---
+		# Build new data
 		out = tuple(value if x is None else x for x in self._underlying)
 
-		# --- Determine new nullability ---
+		# Determine new nullability
 		new_nullable = any(x is None for x in out)
 
-		# --- Construct new dtype ---
+		# Construct new dtype
 		if dtype is None:
 			# Mixed type → leave as None (dtype inference will happen)
 			new_dtype = None
