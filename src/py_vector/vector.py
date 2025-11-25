@@ -303,28 +303,38 @@ class PyVector():
 
 		return PyVector(tuple(out), name=self._name, as_row=self._display_as_row)
 
-
 	def fillna(self, value):
-		"""
-		Replace None values with a fill value.
-		
-		Parameters
-		----------
-		value : object
-			Value to replace Nones with
-		
-		Returns
-		-------
-		PyVector
-			New vector with Nones replaced
-		
-		Examples
-		--------
-		>>> v = PyVector([1, None, 3])
-		>>> v.fillna(0)
-		PyVector([1, 0, 3])
-		"""
-		return PyVector(tuple(value if elem is None else elem for elem in self._underlying), dtype=self._dtype.with_nullable(False))
+		dtype = self.schema()
+
+		# --- Type validate the fill value ---
+		if dtype is not None and value is not None:
+			try:
+				if not isinstance(value, dtype.kind):
+					value = dtype.kind(value)
+			except Exception:
+				raise ValueError(
+					f"fillna: value {value!r} cannot be converted to {dtype.kind.__name__}"
+				)
+
+		# --- Build new data ---
+		out = tuple(value if x is None else x for x in self._underlying)
+
+		# --- Determine new nullability ---
+		new_nullable = any(x is None for x in out)
+
+		# --- Construct new dtype ---
+		if dtype is None:
+			# Mixed type → leave as None (dtype inference will happen)
+			new_dtype = None
+		else:
+			new_dtype = dtype.with_nullable(nullable=new_nullable)
+
+		return PyVector(
+			out,
+			dtype=new_dtype,
+			name=self._name,
+			as_row=self._display_as_row
+		)
 
 	def dropna(self):
 		"""
