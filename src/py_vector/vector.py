@@ -18,6 +18,7 @@ from .typing import validate_scalar
 from copy import deepcopy
 from datetime import date
 from datetime import datetime
+from datetime import timedelta
 from .typeutils import slice_length
 
 from typing import Any
@@ -647,6 +648,25 @@ class PyVector():
 	"""
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)
+		
+		# CASE A: Self is 2D (Table on Left)
+		# T == v -> [C1==v, C2==v, ...]
+		if self.ndims() == 2:
+			return self.copy(tuple(
+				# recursive call: Column == other
+				col._elementwise_compare(other, op) 
+				for col in self.cols()
+			))
+		
+		# CASE B: Other is 2D (Table on Right)
+		# v == T -> [v==C1, v==C2, ...]
+		if isinstance(other, PyVector) and other.ndims() == 2:
+			return other.copy(tuple(
+				# recursive call: self == Column
+				self._elementwise_compare(col, op) 
+				for col in other.cols()
+			))
+		
 		if isinstance(other, PyVector):
 			# Raise mismatched lengths
 			assert len(self) == len(other)
@@ -702,6 +722,25 @@ class PyVector():
 	def _elementwise_operation(self, other, op_func, op_name: str, op_symbol: str):
 		"""Helper function to handle element-wise operations with broadcasting."""
 		other = self._check_duplicate(other)
+		
+		# CASE A: Self is 2D (Table on Left)
+		# T + v -> [C1+v, C2+v, ...]
+		if self.ndims() == 2:
+			return self.copy(tuple(
+				# recursive call: Column + other
+				col._elementwise_operation(other, op_func, op_name, op_symbol) 
+				for col in self.cols()
+			))
+		
+		# CASE B: Other is 2D (Table on Right)
+		# v + T -> [v+C1, v+C2, ...]
+		if isinstance(other, PyVector) and other.ndims() == 2:
+			return other.copy(tuple(
+				# recursive call: self + Column
+				self._elementwise_operation(col, op_func, op_name, op_symbol) 
+				for col in other.cols()
+			))
+		
 		if isinstance(other, PyVector):
 			assert len(self) == len(other)
 			try:
