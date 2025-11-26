@@ -8,114 +8,122 @@ def _missing_col_error(name, context="PyTable"):
 	return PyVectorKeyError(f"Column '{name}' not found in {context}")
 
 
-class _RowView:
-    """
-    Lightweight row view for iterating over table rows with attribute access.
-    """
-    __slots__ = ('_table', '_column_map', '_index')
-    
-    def __init__(self, table, index):
-        self._table = table
-        self._index = index
-        self._column_map = table._build_column_map()
-    
-    def set_index(self, index):
-        self._index = index
-        return self
-    
-    def size(self):
-        """Return the size of the row (which is the number of columns)."""
-        return (len(self._table._underlying),)
+class PyRow(PyVector):
+	"""
+	The One Row to Rule Them All.
+	
+	It behaves like a PyVector (math, logic, isinstance), but it is a 
+	zero-copy view into the Table's columns.
+	
+	PERFORMANCE NOTE:
+	We deliberately bypass PyVector.__init__ to avoid O(N) scans, 
+	fingerprinting, and alias tracking during iteration.
+	"""
+	__slots__ = ('_raw_cols', '_column_map', '_index', '_dtype')
+	
+	def __new__(cls, table, index=0):
+		# Bypass PyVector.__new__ entirely.
+		# This prevents the infinite loop of checking "is the input iterable?"
+		return object.__new__(cls)
 
-    def __getattr__(self, attr):
-        col_idx = self._column_map.get(attr.lower())
-        if col_idx is None:
-            raise AttributeError(f"Row has no attribute '{attr}'")
-        return self._table._underlying[col_idx][self._index]
-    
-    def __getitem__(self, key):
-        if isinstance(key, int):
-            return self._table._underlying[key][self._index]
-        if isinstance(key, str):
-            return getattr(self, key)
-        raise TypeError(f"Row indices must be int or str, not {type(key).__name__}")
-    
-    def __iter__(self):
-        idx = self._index
-        for col in self._table._underlying:
-            yield col[idx]
-    
-    def __len__(self):
-        return len(self._table._underlying)
-    
-    def __repr__(self):
-        idx = self._index
-        # Helper to make the row print nicely
-        values = [repr(col[idx]) for col in self._table._underlying]
-        return f"Row({idx}: {', '.join(values)})"
+	def __init__(self, table, index=0):
+		# SNAPSHOT: Grab raw column lists for speed
+		self._raw_cols = [col._underlying for col in table._underlying]
+		self._column_map = table._column_map
+		self._index = index
+		
+		# Smart Dtype Inference (Runs once per table iteration/access)
+		# If all columns are the same type, the row is that type.
+		# Otherwise, it's an object vector.
+		from .typing import DataType
+		
+		if not table._underlying:
+			self._dtype = DataType(object, nullable=True)
+		else:
+			# Check uniformity of column types
+			col_dtypes = [col._dtype for col in table._underlying]
+			unique_kinds = {dt.kind for dt in col_dtypes}
+			
+			if len(unique_kinds) == 1:
+				# Homogeneous (Matrix-like)
+				kind = unique_kinds.pop()
+				# If ANY column is nullable, the row vector must be nullable
+				is_nullable = any(dt.nullable for dt in col_dtypes)
+				self._dtype = DataType(kind, nullable=is_nullable)
+			else:
+				# Heterogeneous (DataFrame-like)
+				self._dtype = DataType(object, nullable=True)
 
+		# CRITICAL: We DO NOT call super().__init__()
+		# calling PyVector.__init__ would materialize the data and kill performance.
+		# We are a "Hollow" Vector.
 
-class _FastIterRow:
-    """
-    Performance-optimized row view for iteration.
-    - Binds directly to the underlying tuple pointers at init time.
-    - Removes 'self._table._underlying' lookup overhead per cell.
-    - Uses type() instead of isinstance() for marginal speed gains in hot paths.
-    """
-    __slots__ = ('_raw_cols', '_column_map', '_index')
-    
-    def __init__(self, table, index=0):
-        # SNAPSHOT: Grab the raw tuples directly. 
-        # This is the secret sauce. We bypass the PyVector wrapper entirely.
-        self._raw_cols = [col._underlying for col in table._underlying]
-        self._column_map = table._column_map
-        self._index = index
+	def set_index(self, index):
+		""" Mutable iterator pattern for speed """
+		self._index = index
+		return self
 
-    def set_index(self, index):
-        self._index = index
-        return self
+	@property
+	def _underlying(self):
+		"""
+		If a PyVector method asks for 'self._underlying', we materialize it on demand.
+		This is the "Lazy" part. We don't build the tuple until you do math.
+		"""
+		return tuple(col[self._index] for col in self._raw_cols)
 
-    # --- THE HOT PATH ---
-    def __getitem__(self, key):
-        # Optimization: Most loops use integer indexing or string names.
-        # We inline the logic to avoid method dispatch overhead.
-        
-        # type(x) is int is faster than isinstance(x, int)
-        if type(key) is int:
-             return self._raw_cols[key][self._index]
-             
-        if type(key) is str:
-             return getattr(self, key)
-             
-        # Fallback for slices (rare in tight loops)
-        if isinstance(key, slice):
-            return tuple(self._raw_cols[i][self._index] for i in range(len(self._raw_cols))[key])
-            
-        raise TypeError(f"Indices must be int/str, not {type(key).__name__}")
+	def size(self):
+		"""
+		Recursive size check.
+		1. Standard Vector: (len,)
+		2. Vector of Vectors/Tables: (len, inner_dims...)
+		"""
+		my_len = len(self._raw_cols)
+		if my_len == 0:
+			return (0,)
+		
+		# Peek at the first element (using raw access to avoid object creation)
+		# to see if it has dimensions (is a PyVector/PyTable)
+		first_val = self._raw_cols[0][self._index]
+		
+		if hasattr(first_val, 'size'):
+			return (my_len,) + first_val.size()
+		
+		return (my_len,)
 
-    def __getattr__(self, attr):
-        # We rely on the pre-computed map for O(1) lookup
-        col_idx = self._column_map.get(attr.lower())
-        if col_idx is None:
-            raise AttributeError(f"Row has no attribute '{attr}'")
-        return self._raw_cols[col_idx][self._index]
+	def __repr__(self):
+		# Custom repr to look like a Row, not a Vector
+		idx = self._index
+		values = [repr(col[idx]) for col in self._raw_cols]
+		return f"Row({idx}: {', '.join(values)})"
 
-    # --- Protocol Support ---
-    def size(self):
-        return (len(self._raw_cols),)
+	def __getattr__(self, attr):
+		# 1. Try column names first (Row behavior)
+		col_idx = self._column_map.get(attr.lower())
+		if col_idx is not None:
+			return self._raw_cols[col_idx][self._index]
+			
+		# 2. Fall back to PyVector methods (sum, mean, cast, etc.)
+		return super().__getattr__(attr)
 
-    def __iter__(self):
-        idx = self._index
-        for col in self._raw_cols:
-            yield col[idx]
+	def __getitem__(self, key):
+		# Optimized hot path for loops
+		if type(key) is int:
+			 return self._raw_cols[key][self._index]
+		
+		if type(key) is str:
+			 return getattr(self, key)
+			 
+		# Fallback to standard vector slicing/masking
+		return super().__getitem__(key)
 
-    def __len__(self):
-        return len(self._raw_cols)
+	def __iter__(self):
+		# Fast iteration for unpacking: x, y, z = row
+		idx = self._index
+		for col in self._raw_cols:
+			yield col[idx]
 
-    def __repr__(self):
-        idx = self._index
-        values = [repr(col[idx]) for col in self._raw_cols]
-        return f"Row({idx}: {', '.join(values)})"
+	def __len__(self):
+		return len(self._raw_cols)
 
 
 class PyTable(PyVector):
@@ -173,7 +181,7 @@ class PyTable(PyVector):
 		"""Build mapping from sanitized column names to column indices.
 		
 		This is computed once during table initialization and used by
-		_RowView for O(1) attribute lookups during iteration.
+		PyRow for O(1) attribute lookups during iteration.
 		"""
 		column_map = {}
 		seen = set()
@@ -212,6 +220,7 @@ class PyTable(PyVector):
 		for col in self._underlying:
 			if col._name == old_name:
 				col._name = new_name
+				self._column_map = self._build_column_map()
 				return self
 		raise _missing_col_error(old_name)
 	
@@ -247,6 +256,7 @@ class PyTable(PyVector):
 					col._name = new
 					break
 
+		self._column_map = self._build_column_map()
 		return self
 
 	@property
@@ -351,14 +361,14 @@ class PyTable(PyVector):
 				if isinstance(key[1], int):
 					return self.cols(key[1])[key[0]]
 				return self.copy([col[key[0]] for col in self.cols()[key[1]]])
-			# Let the _RowView handle the column lookup (works for int and str)
+			# Let the PyRow handle the column lookup (works for int and str)
 			return self[key[0]][key[1]]
 
 		if isinstance(key, int):
 			# Effectively a different input type (single not a list). Returning a value, not a vector.
 			if isinstance(self._underlying[0], PyTable):
 				return self._underlying[key]
-			return _RowView(self, key)
+			return PyRow(self, key)
 
 		if isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable:
 			assert (len(self) == len(key))
@@ -390,7 +400,7 @@ class PyTable(PyVector):
 		Snapshots data state at start of iteration for performance.
 		"""
 		# Use the WET/Optimized view for loops
-		row_view = _FastIterRow(self, 0)
+		row_view = PyRow(self, 0)
 		
 		# Cache length locally to avoid self.__len__() call in loop
 		n = len(self)
@@ -402,14 +412,6 @@ class PyTable(PyVector):
 	def __repr__(self):
 		from .display import _printr
 		return _printr(self)
-
-	def __matmul__(self, other):
-		if isinstance(other, PyVector):
-			# we want the sum to operate 'in place' on integers
-			if other.ndims() == 1:
-				return PyVector(tuple(sum(u*v for u, v in zip(s._underlying, other._underlying)) for s in self))
-			return self.copy(tuple(self.copy(tuple(x@y for x in other.cols())) for y in self)).T
-		return super().__matmul__(other)
 
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)

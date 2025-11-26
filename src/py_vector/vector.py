@@ -1075,14 +1075,60 @@ class PyVector():
 
 
 	def __matmul__(self, other):
-		""" Recursive matrix multiplication - I think this applies to all tensor contraction, but could be wrong """
+		"""
+		Universal Matrix Multiplication / Dot Product.
+		Logic is centralized here to keep PyTable lightweight.
+		
+		Implements:
+		1. Vector @ Vector -> Scalar (Dot Product)
+		2. Matrix @ Vector -> Vector (Linear Combination)
+		3. Matrix @ Matrix -> Matrix (Recursive columns)
+		"""
 		other = self._check_duplicate(other)
-		if type(other).__name__ == 'PyTable':
-			return PyVector(tuple(self @ z for z in other.cols()))
-		return sum(x*y for x, y in zip(self._underlying, other._underlying, strict=True))
-		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
-		# PyVector(tuple(PyVector(tuple(sum((u*v for u, v in zip(x._underlying, y._underlying))) for y in q.cols())) for x in p))
+		
+		# === CASE 1: SELF IS MATRIX (2D) ===
+		if self.ndims() == 2:
+			
+			# 1a. Matrix @ Matrix
+			# Recursive: This Matrix @ Each Column of Other
+			if hasattr(other, 'cols') and other.ndims() == 2:
+				# Returns a tuple of vectors, wrapped in a new PyVector (which becomes PyTable)
+				return self.copy(tuple(self @ col for col in other.cols())).rename(None)
 
+			# 1b. Matrix @ Vector
+			# The "Trick": Linear Combination of Columns
+			# Result = sum(Column_i * Scalar_i)
+			if isinstance(other, PyVector):
+				cols = self.cols() 
+				
+				if len(cols) != len(other):
+						raise PyVectorValueError(f"Dim mismatch: Matrix cols {len(cols)} != Vector len {len(other)}")
+				
+				# OPTIMIZATION: Access other._underlying directly to avoid index overhead in loop
+				scalars = other._underlying
+				
+				if not cols:
+					return PyVector([])
+
+				# Start accumulator with first term (Col_0 * Scalar_0)
+				acc = cols[0] * scalars[0]
+				
+				# Add remaining terms
+				for i in range(1, len(cols)):
+					acc = acc + (cols[i] * scalars[i])
+				
+				return acc
+
+		# === CASE 2: SELF IS VECTOR (1D) ===
+		
+		# 2a. Vector @ Matrix
+		# Broadcast self against columns of matrix
+		if hasattr(other, 'cols') and other.ndims() == 2:
+				return PyVector(tuple(self @ col for col in other.cols()))
+
+		# 2b. Vector @ Vector (Dot Product)
+		# Standard sum of products
+		return sum(x*y for x, y in zip(self._underlying, other._underlying, strict=True))
 
 	def __rmatmul__(self, other):
 		other = self._check_duplicate(other)
@@ -1191,6 +1237,22 @@ class PyVector():
 			None,
 			None,
 			False)
+
+	
+	def bit_lshift(self, other):
+		"""
+		Bitwise left shift (<<).
+		Explicit method since '<<' operator is used for concatenation.
+		"""
+		return self._elementwise_operation(other, operator.lshift, 'bit_lshift', '<<')
+
+	def bit_rshift(self, other):
+		"""
+		Bitwise right shift (>>).
+		Explicit method since '>>' operator is used for column addition.
+		"""
+		return self._elementwise_operation(other, operator.rshift, 'bit_rshift', '>>')
+
 
 	def __getattr__(self, name):
 		"""Proxy attribute access to underlying dtype.
