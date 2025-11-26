@@ -68,8 +68,7 @@ class _FastIterRow:
         # SNAPSHOT: Grab the raw tuples directly. 
         # This is the secret sauce. We bypass the PyVector wrapper entirely.
         self._raw_cols = [col._underlying for col in table._underlying]
-        full_map = table._build_column_map()
-        self._column_map = {k: v[0] for k, v in full_map.items()}
+        self._column_map = table._column_map
         self._index = index
 
     def set_index(self, index):
@@ -157,6 +156,7 @@ class PyTable(PyVector):
 			for i, col_name in enumerate(original_names):
 				if i < len(self._underlying):
 					self._underlying[i]._name = col_name
+		self._column_map = self._build_column_map()
 		
 
 	def __len__(self):

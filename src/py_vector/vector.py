@@ -166,7 +166,7 @@ class PyVector():
 
 
 	def size(self):
-		if not self:
+		if not self._underlying:
 			return tuple()
 		return (len(self),)
 
@@ -899,6 +899,17 @@ class PyVector():
 		# Exclude None values from sum
 		return sum(v for v in self._underlying if v is not None)
 
+	def all(self):
+		"""Return True if all elements are truthy (excluding None)."""
+		if self.ndims() == 2:
+			return self.copy((c.all() for c in self.cols()), name=None).T
+		return all(v for v in self._underlying if v is not None)
+
+	def any(self):
+		"""Return True if any element is truthy (excluding None)."""
+		if self.ndims() == 2:
+			return self.copy((c.any() for c in self.cols()), name=None).T
+		return any(v for v in self._underlying if v is not None)
 
 	def mean(self):
 		if self.ndims() == 2:

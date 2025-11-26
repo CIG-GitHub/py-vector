@@ -16,13 +16,13 @@ def test_date_properties():
 	
 	# Properties should work without parentheses
 	years = dates.year
-	assert years == PyVector([2024, 2024])
+	assert (years == PyVector([2024, 2024])).all()
 	
 	months = dates.month
-	assert months == PyVector([1, 12])
+	assert (months == PyVector([1, 12])).all()
 	
 	days = dates.day
-	assert days == PyVector([15, 25])
+	assert (days == PyVector([15, 25])).all()
 
 
 def test_date_methods():
@@ -31,10 +31,10 @@ def test_date_methods():
 	
 	# Methods should require parentheses
 	replaced = dates.replace(year=2025)
-	assert replaced == PyVector([date(2025, 1, 15), date(2025, 12, 25)])
+	assert (replaced == PyVector([date(2025, 1, 15), date(2025, 12, 25)])).all()
 	
 	formatted = dates.strftime("%Y-%m-%d")
-	assert formatted == PyVector(["2024-01-15", "2024-12-25"])
+	assert (formatted == PyVector(["2024-01-15", "2024-12-25"])).all()
 
 
 def test_str_methods():
@@ -43,10 +43,10 @@ def test_str_methods():
 	
 	# Methods require parentheses
 	replaced = words.replace("o", "0")
-	assert replaced == PyVector(["hell0", "w0rld"])
+	assert (replaced == PyVector(["hell0", "w0rld"])).all()
 	
 	uppercased = words.upper()
-	assert uppercased == PyVector(["HELLO", "WORLD"])
+	assert (uppercased == PyVector(["HELLO", "WORLD"])).all()
 
 
 def test_int_properties():
@@ -55,10 +55,10 @@ def test_int_properties():
 	
 	# These are properties (not methods)
 	reals = nums.real
-	assert reals == PyVector([1, 2, 3])
+	assert (reals == PyVector([1, 2, 3])).all()
 	
 	imags = nums.imag
-	assert imags == PyVector([0, 0, 0])
+	assert (imags == PyVector([0, 0, 0])).all()
 
 
 def test_int_methods():
@@ -67,10 +67,10 @@ def test_int_methods():
 	
 	# Methods require parentheses
 	lengths = nums.bit_length()
-	assert lengths == PyVector([1, 2, 2, 3])
+	assert (lengths == PyVector([1, 2, 2, 3])).all()
 	
 	counts = nums.bit_count()
-	assert counts == PyVector([1, 1, 2, 1])
+	assert (counts == PyVector([1, 1, 2, 1])).all()
 
 
 def test_float_properties():
@@ -79,10 +79,10 @@ def test_float_properties():
 	
 	# Properties work without parentheses
 	reals = floats.real
-	assert reals == PyVector([1.5, 2.5, 3.5])
+	assert (reals == PyVector([1.5, 2.5, 3.5])).all()
 	
 	imags = floats.imag
-	assert imags == PyVector([0.0, 0.0, 0.0])
+	assert (imags == PyVector([0.0, 0.0, 0.0])).all()
 
 
 def test_float_methods():
@@ -91,7 +91,7 @@ def test_float_methods():
 	
 	# Methods require parentheses
 	is_ints = floats.is_integer()
-	assert is_ints == PyVector([True, False, True])
+	assert (is_ints == PyVector([True, False, True])).all()
 	
 	hexes = floats.hex()
 	assert len(hexes) == 3
