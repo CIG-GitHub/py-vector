@@ -309,17 +309,33 @@ class PyVector():
 	def fillna(self, value):
 		dtype = self.schema()
 
-		# Type validate the fill value
+		# Type check and promotion (same pattern as __setitem__)
 		if dtype is not None and value is not None:
 			try:
-				if not isinstance(value, dtype.kind):
-					value = dtype.kind(value)
-			except Exception:
-				raise ValueError(
-					f"fillna: value {value!r} cannot be converted to {dtype.kind.__name__}"
-				)
+				validate_scalar(value, dtype)
+			except TypeError:
+				# Value is incompatible - need promotion
+				required_dtype = infer_dtype([value])
+				try:
+					# Create a copy and promote it
+					result = self.copy()
+					result._promote(required_dtype.kind)
+					# Now fill with the value on the promoted vector
+					out = tuple(value if x is None else x for x in result._underlying)
+					return PyVector(
+						out,
+						dtype=DataType(required_dtype.kind, nullable=False),
+						name=self._name,
+						as_row=self._display_as_row
+					)
+				except PyVectorTypeError:
+					raise ValueError(
+						f"fillna: value {value!r} (type {type(value).__name__}) "
+						f"cannot be used with {dtype.kind.__name__} vector. "
+						f"Promotion not supported."
+					)
 
-		# Build new data
+		# Standard path: fill value is compatible with dtype
 		out = tuple(value if x is None else x for x in self._underlying)
 
 		# Determine new nullability

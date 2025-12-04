@@ -135,3 +135,34 @@ class TestFingerprint:
         v2 = PyVector([1, 2, 3])
         # Note: fingerprints should be same for same data
         assert v1.fingerprint() == v2.fingerprint()
+
+
+class TestFillNA:
+    """Test fillna behavior"""
+    
+    def test_fillna_basic(self):
+        v = PyVector([1, None, 3])
+        result = v.fillna(0)
+        assert list(result) == [1, 0, 3]
+        assert not result.schema().nullable
+    
+    def test_fillna_promotes_int_to_float(self):
+        """Test that filling int? with float promotes to float"""
+        v = PyVector([10, None, 20])
+        result = v.fillna(5.4)
+        assert list(result) == [10.0, 5.4, 20.0]
+        assert result.schema().kind == float
+        assert not result.schema().nullable
+    
+    def test_fillna_no_promotion_when_compatible(self):
+        """Test that filling with compatible type doesn't promote"""
+        v = PyVector([1.0, None, 3.0])
+        result = v.fillna(2.5)
+        assert list(result) == [1.0, 2.5, 3.0]
+        assert result.schema().kind == float
+        assert not result.schema().nullable
+    
+    def test_fillna_preserves_name(self):
+        v = PyVector([1, None, 3], name='test')
+        result = v.fillna(0)
+        assert result._name == 'test'
