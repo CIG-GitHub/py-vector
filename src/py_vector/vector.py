@@ -829,32 +829,44 @@ class PyVector():
 		return self._elementwise_operation(other, operator.pow, '__pow__', '**')
 
 	def __radd__(self, other):
-		""" Change behavior for strings """
+		"""Reverse addition: other + self (handles strings specially)"""
 		other = self._check_duplicate(other)
+		
+		# PyVector + PyVector
 		if isinstance(other, PyVector):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
-			if not self._dtype.nullable:
-				other._promote(self._dtype.kind)
-			return PyVector(tuple(y + x for x, y in zip(self, other, strict=True)),
-							dtype=self._dtype,
-							name=None,
-							as_row=self._display_as_row)
-
-		if isinstance(other, self._dtype.kind or object) or self._check_native_typesafe(other):
-			return PyVector(tuple(other + x for x in self.cols()),
-							dtype=self._dtype,
-							name=None,
-							as_row=self._display_as_row)
-
-		if hasattr(other, '__iter__'):
+			vals = []
+			for x, y in zip(other, self, strict=True):
+				if x is None or y is None:
+					vals.append(None)
+				else:
+					vals.append(x + y)
+			return PyVector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
+		
+		# Scalar + PyVector
+		if not hasattr(other, "__iter__") or isinstance(other, (str, bytes, bytearray)):
+			vals = []
+			for x in self:
+				if x is None:
+					vals.append(None)
+				else:
+					vals.append(other + x)
+			return PyVector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
+		
+		# Iterable + PyVector
+		if hasattr(other, "__iter__"):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
-			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
-				dtype=self._dtype,
-				name=None,
-				as_row=self._display_as_row)
-		return self + other
+			vals = []
+			for x, y in zip(other, self, strict=True):
+				if x is None or y is None:
+					vals.append(None)
+				else:
+					vals.append(x + y)
+			return PyVector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
+		
+		raise PyVectorTypeError(f"Unsupported operand type: {type(other).__name__}")
 
 	def __rmul__(self, other):
 		return self.__mul__(other)

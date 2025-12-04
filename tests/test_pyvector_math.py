@@ -37,6 +37,12 @@ class TestAddition:
         v = PyVector(['world', 'python'])
         result = 'hello ' + v
         assert list(result) == ['hello world', 'hello python']
+    
+    def test_radd_zero_with_none(self):
+        """Test that 0 + v works with None values (important for sum())"""
+        v = PyVector([10, None, 20])
+        result = 0 + v
+        assert list(result) == [10, None, 20]
 
 
 class TestSubtraction:
