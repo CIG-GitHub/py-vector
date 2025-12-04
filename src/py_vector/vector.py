@@ -272,39 +272,51 @@ class PyVector():
 	def cast(self, target_type):
 		"""
 		Convert each element to target_type, recursively if the element is a PyVector.
+		Preserves None values and infers nullable dtype.
 		"""
+		py_target_type = target_type  # logical type for dtype / error messages
 
 		# Python Date interceptors
 		if target_type is date:
-			def _to_date(x):
+			def caster(x):
 				if isinstance(x, date):
 					return x
 				return date.fromisoformat(x)
-			target_type = _to_date
-
 		elif target_type is datetime:
-			def _to_datetime(x):
+			def caster(x):
 				if isinstance(x, datetime):
 					return x
 				return datetime.fromisoformat(x)
-			target_type = _to_datetime
-
+		else:
+			caster = target_type  # either a type like str/int, or a callable
 
 		out = []
+		has_none = False
 		for i, elem in enumerate(self._underlying):
+			if elem is None:
+				out.append(None)
+				has_none = True
+				continue
+
 			try:
 				if isinstance(elem, PyVector):
-					# Recursive cast
 					out.append(elem.cast(target_type))
 				else:
-					# Scalar cast
-					out.append(target_type(elem))
-			except Exception:
+					out.append(caster(elem))
+			except Exception as exc:
+				type_name = getattr(py_target_type, "__name__", repr(py_target_type))
 				raise ValueError(
-					f"Cast failed at index {i}: '{elem}' cannot be converted to {target_type.__name__}"
-				)
+					f"Cast failed at index {i}: {elem!r} cannot be converted to {type_name}"
+				) from exc
 
-		return PyVector(tuple(out), name=self._name, as_row=self._display_as_row)
+		# Now decide dtype using the *logical* type, not the callable
+		if isinstance(py_target_type, type):
+			new_dtype = DataType(py_target_type, nullable=has_none)
+		else:
+			# user gave a weird callable as target_type, infer from result
+			new_dtype = infer_dtype(out)
+
+		return PyVector(tuple(out), dtype=new_dtype, name=self._name, as_row=self._display_as_row)
 
 	def fillna(self, value):
 		dtype = self.schema()

@@ -166,3 +166,32 @@ class TestFillNA:
         v = PyVector([1, None, 3], name='test')
         result = v.fillna(0)
         assert result._name == 'test'
+
+
+class TestCast:
+    """Test cast behavior"""
+    
+    def test_cast_preserves_none(self):
+        """Test that None values are preserved, not converted to 'None' string"""
+        v = PyVector([10, None, 20])
+        result = v.cast(str)
+        assert list(result) == ['10', None, '20']
+        assert result.schema().kind == str
+        assert result.schema().nullable
+    
+    def test_cast_nullable_to_nullable(self):
+        """Test that casting nullable input produces nullable output"""
+        v = PyVector([1.5, None, 2.5])
+        result = v.cast(int)
+        assert list(result) == [1, None, 2]
+        assert result.schema().kind == int
+        assert result.schema().nullable
+    
+    def test_cast_non_nullable_to_non_nullable(self):
+        """Test that casting non-nullable input produces non-nullable output"""
+        v = PyVector([1.5, 2.5, 3.5])
+        result = v.cast(int)
+        assert list(result) == [1, 2, 3]
+        assert result.schema().kind == int
+        assert not result.schema().nullable
+
