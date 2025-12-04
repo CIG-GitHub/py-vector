@@ -17,9 +17,9 @@ t = PyTable({
     "quantity":  [4, 5, 6]
 })
 
-# Add calculated columns with clean >>= syntax
-t >>= (t.price * t.quantity).rename("total")
-t >>= (t.total * 0.1).rename("tax")
+# Add calculated columns with dict syntax
+t >>= {'total': t.price * t.quantity}
+t >>= {'tax': t.total * 0.1}
 
 t
 # 'price ($)'  quantity  total  tax
@@ -47,7 +47,7 @@ t = read_csv("sales.csv")  # Messy column names? No problem.
 total = t.price * t.quantity
 
 # Add derived columns
-t >>= total.rename("total")
+t >>= {'total': total}
 
 # Inspect (original names preserved in display!)
 t
@@ -80,7 +80,8 @@ pip freeze
 - Explicit, predictable vector semantics
 - Tables compose cleanly from vectors
 - Readable "spreadsheet-like" workflows
-- Safe defaults (copy-on-write, alias tracking, immutability)
+- Table-owns-storage: building a table copies inputs so tables never share columns by accident
+- Controlled mutation: column vectors are live views; in-place updates mutate only that table
 - Immediate visual feedback via `__repr__`
 - Zero hidden magic
 

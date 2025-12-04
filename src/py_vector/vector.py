@@ -417,10 +417,12 @@ class PyVector():
 
 		key = self._check_duplicate(key)
 		if isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable:
-			assert (len(self) == len(key))
+			if len(self) != len(key):
+				raise ValueError(f"Boolean mask length mismatch: {len(self)} != {len(key)}")
 			return self.copy((x for x, y in zip(self, key, strict=True) if y), name=self._name)
 		if isinstance(key, list) and {type(e) for e in key} == {bool}:
-			assert (len(self) == len(key))
+			if len(self) != len(key):
+				raise ValueError(f"Boolean mask length mismatch: {len(self)} != {len(key)}")
 			return self.copy((x for x, y in zip(self, key, strict=True) if y), name=self._name)
 		if isinstance(key, slice):
 			return self.copy(self._underlying[key], name=self._name)
@@ -669,12 +671,14 @@ class PyVector():
 		
 		if isinstance(other, PyVector):
 			# Raise mismatched lengths
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
 			return PyVector(result_values, dtype=DataType(bool, nullable=False))
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
 			return PyVector(result_values, dtype=DataType(bool, nullable=False))
 		# Scalar comparison
@@ -742,7 +746,8 @@ class PyVector():
 			))
 		
 		if isinstance(other, PyVector):
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			try:
 				result_values = tuple(None if (x is None or y is None) else op_func(x, y) for x, y in zip(self, other, strict=True))
 			except TypeError:
@@ -756,7 +761,8 @@ class PyVector():
 							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			try:
 				result_values = tuple(None if (x is None or y is None) else op_func(x, y) for x, y in zip(self, other, strict=True))
 			except TypeError:
@@ -826,7 +832,8 @@ class PyVector():
 		""" Change behavior for strings """
 		other = self._check_duplicate(other)
 		if isinstance(other, PyVector):
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			if not self._dtype.nullable:
 				other._promote(self._dtype.kind)
 			return PyVector(tuple(y + x for x, y in zip(self, other, strict=True)),
@@ -841,7 +848,8 @@ class PyVector():
 							as_row=self._display_as_row)
 
 		if hasattr(other, '__iter__'):
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			return PyVector(tuple(op_func(x, y) for x, y in zip(self, other, strict=True)),
 				dtype=self._dtype,
 				name=None,
@@ -1128,12 +1136,16 @@ class PyVector():
 
 		# 2b. Vector @ Vector (Dot Product)
 		# Standard sum of products
+		if len(self) != len(other):
+			raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 		return sum(x*y for x, y in zip(self._underlying, other._underlying, strict=True))
 
 	def __rmatmul__(self, other):
 		other = self._check_duplicate(other)
 		if len(self.size()) > 1:
 			return PyVector(tuple(x @ other for x in self.cols()))
+		if len(self) != len(other):
+			raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
 		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
@@ -1522,14 +1534,16 @@ class _PyDate(PyVector):
 		other = self._check_duplicate(other)
 		if isinstance(other, PyVector):
 			# Raise mismatched lengths
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			if other.schema().kind == str:
 				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 			if other.schema().kind == datetime:
 				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 		elif hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
-			assert len(self) == len(other)
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			# If it's not a PyVector or Constant, don't apply date compare logic
 			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 		elif isinstance(other, str):
@@ -1585,6 +1599,8 @@ class _PyDate(PyVector):
 	def __add__(self, other):
 		""" adding integers is adding days """
 		if isinstance(other, PyVector) and other.schema().kind == int:
+			if len(self) != len(other):
+				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			return PyVector(tuple(
 				(date.fromordinal(s.toordinal() + y) if s is not None and y is not None else None)
 				for s, y in zip(self._underlying, other, strict=True)

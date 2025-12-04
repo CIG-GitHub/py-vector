@@ -208,12 +208,51 @@ class PyTable(PyVector):
 
 	def __getattr__(self, attr):
 		"""Access columns by sanitized attribute name using pre-computed column map."""
-		col_idx = self._build_column_map().get(attr.lower())
-		if col_idx is not None:
-			return self._underlying[col_idx]
+		# Use cached _column_map instead of rebuilding
+		if hasattr(self, '_column_map'):
+			col_idx = self._column_map.get(attr) or self._column_map.get(attr.lower())
+			if col_idx is not None:
+				return self._underlying[col_idx]
 		
 		# Attribute not found - raise AttributeError for Pythonic behavior
 		raise AttributeError(f"{self.__class__.__name__!s} object has no attribute '{attr}'")
+
+	def __setattr__(self, attr, value):
+		"""Intercept column assignments (t.colname = vec) to update underlying columns."""
+		# Let instance attributes initialize normally (before __init__ completes)
+		if attr in ('_underlying', '_length', '_column_map', '_dtype', '_name', '_display_as_row', '_fp', '_fp_powers'):
+			object.__setattr__(self, attr, value)
+			return
+		
+		# After initialization, check if setting an existing column
+		if hasattr(self, '_column_map'):
+			col_idx = self._column_map.get(attr) or self._column_map.get(attr.lower())
+			if col_idx is not None:
+				# Replace the column in _underlying
+				if not isinstance(value, PyVector):
+					value = PyVector(value)
+				
+				# Validate length
+				if self._underlying and len(value) != self._length:
+					raise ValueError(
+						f"Cannot assign column '{attr}': length {len(value)} != table length {self._length}"
+					)
+				
+				# Replace column (tuples are immutable, so rebuild)
+				cols = list(self._underlying)
+				value._name = self._underlying[col_idx]._name  # Preserve original name
+				cols[col_idx] = value
+				object.__setattr__(self, '_underlying', tuple(cols))
+				
+				# Rebuild column map to reflect any structural changes
+				object.__setattr__(self, '_column_map', self._build_column_map())
+				return
+		
+		# Reject arbitrary attribute setting - only allow column updates
+		raise AttributeError(
+			f"Cannot set attribute '{attr}' on PyTable. "
+			f"Column '{attr}' does not exist. Use >>= to add new columns."
+		)
 
 	def rename_column(self, old_name, new_name):
 		"""Rename a column (modifies in place, returns self for chaining)"""
@@ -267,7 +306,7 @@ class PyTable(PyVector):
 			num_cols = len(self._underlying)
 			rows = []
 			for row_idx in range(num_rows):
-				row = PyVector([col[row_idx] for col in self._underlying])
+				row = PyVector(tuple(col[row_idx] for col in self._underlying))
 				rows.append(row)
 			return PyTable(rows)
 		return self.copy((tuple(x.T for x in self))) # higher dimensions
@@ -416,12 +455,14 @@ class PyTable(PyVector):
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)
 		if isinstance(other, PyVector):
-			# Raise mismatched lengths
-			assert len(self) == len(other)
+			# Raise mismatched column counts
+			if len(self.cols()) != len(other.cols()):
+				raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other.cols())}")
 			return PyVector(tuple(op(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)), False, bool, True)
 		if hasattr(other, '__iter__'):
-			# Raise mismatched lengths
-			assert len(self) == len(other)
+			# Raise mismatched row counts
+			if len(self) != len(other):
+				raise ValueError(f"Row count mismatch: {len(self)} != {len(other)}")
 			return PyVector(tuple(op(x, y) for x, y in zip(self, other, strict=True)), False, bool, True).T
 		return PyVector(tuple(op(x, other) for x in self.cols()), False, bool, True)
 
@@ -430,6 +471,36 @@ class PyTable(PyVector):
 		"""
 		if self._dtype is not None and self._dtype.kind in (bool, int) and isinstance(other, int):
 			warnings.warn(f"The behavior of >> and << have been overridden. Use .bitshift() to shift bits.")
+
+		# Dict syntax: {name: values, ...}
+		if isinstance(other, dict):
+			# Convert dict to named PyVectors
+			named_cols = []
+			for col_name, values in other.items():
+				# Convert to PyVector if needed
+				if isinstance(values, PyVector):
+					col = values.copy()  # Copy to prevent aliasing
+				elif hasattr(values, "__iter__") and not isinstance(values, (str, bytes)):
+					col = PyVector(values)
+				else:
+					# Reject scalars - user must be explicit
+					raise ValueError(
+						f"Column '{col_name}' value must be iterable (list, PyVector, etc.), not scalar. "
+						f"Use PyVector.new({values!r}, {len(self)}) for scalar broadcast."
+					)
+				
+				# Validate length
+				if self._underlying and len(col) != self._length:
+					raise ValueError(
+						f"Column '{col_name}' has length {len(col)}, expected {self._length}"
+					)
+				
+				# Set name
+				col._name = col_name
+				named_cols.append(col)
+			
+			# Return new table with appended columns
+			return PyTable(tuple(self._underlying) + tuple(named_cols))
 
 		if isinstance(other, PyTable):
 			if self._dtype is not None and not self._dtype.nullable and other.schema() is not None and not other.schema().nullable and self._dtype.kind != other.schema().kind:
@@ -450,44 +521,17 @@ class PyTable(PyVector):
 				dtype=self._dtype)
 		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
 
-	def __irshift__(self, other):
-		"""
-		In-place column append (t >>= col).
-		Creates a new tuple of columns and rebinds self._underlying.
-		"""
-
-		# Normalize "other" into a tuple of PyVectors
-		if isinstance(other, PyTable):
-			new_cols = tuple(other._underlying)
-		elif isinstance(other, PyVector):
-			new_cols = (other,)
-		elif hasattr(other, "__iter__") and not isinstance(other, (str, bytes)):
-			new_cols = (PyVector(other),)
-		else:
-			new_cols = (PyVector((other,)),)
-
-		# Validate lengths or adopt length if table is empty
-		for col in new_cols:
-			if self._underlying:
-				if len(col) != self._length:
-					raise ValueError(
-						f"Column length {len(col)} does not match table row count {self._length}."
-					)
-			else:
-				self._length = len(col)
-
-		# NEW: rebind tuple (immutability-respecting in-place update)
-		self._underlying = self._underlying + new_cols
-
-		return self
-
 
 	def __lshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
 		"""
 		if isinstance(other, PyTable):
-			return PyVector([x << y for x, y in zip(self._underlying, other._underlying, strict=True)])
-		return PyVector([x << y for x, y in zip(self._underlying, other, strict=True)])
+			if len(self.cols()) != len(other.cols()):
+				raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other.cols())}")
+			return PyVector(tuple(x << y for x, y in zip(self.cols(), other.cols(), strict=True)))
+		if len(self.cols()) != len(other):
+			raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other)}")
+		return PyVector(tuple(x << y for x, y in zip(self.cols(), other, strict=True)))
 
 	@staticmethod
 	def _validate_key_tuple_hashable(key_tuple, key_cols, row_idx):
@@ -765,7 +809,7 @@ class PyTable(PyVector):
 		
 		# Handle empty result
 		if all(len(col) == 0 for col in result_data):
-			return PyTable([])
+			return PyTable(())
 		
 		# ------------------------------------------------------------------
 		# 5. Wrap result_data in PyVectors
@@ -907,7 +951,7 @@ class PyTable(PyVector):
 		
 		# Handle completely empty result
 		if left_nrows == 0:
-			return PyTable([])
+			return PyTable(())
 		
 		# Wrap result_data into PyVectors, preserving column names
 		result_cols = []
@@ -1079,7 +1123,7 @@ class PyTable(PyVector):
 		# 7. If empty, return empty table
 		# ------------------------------------------------------------------
 		if left_nrows == 0 and right_nrows == 0:
-			return PyTable([])
+			return PyTable(())
 		
 		# ------------------------------------------------------------------
 		# 8. Wrap into PyVectors with names preserved
