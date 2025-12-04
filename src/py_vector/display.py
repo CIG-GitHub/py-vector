@@ -148,7 +148,7 @@ def _align_columns(formatted_cols, header_rows, col_dtypes):
 
 def _footer(pv, dtype_list=None, truncated=False, shown=MAX_HEAD_COLS) -> str:
 	"""Generate footer line based on shape and dtypes."""
-	shape = pv.size()
+	shape = pv.shape
 	if not shape:
 		return "# empty"
 	
@@ -282,7 +282,7 @@ def _repr_table(tbl) -> str:
 
 def _printr(pv) -> str:
 	"""Entry point used by PyVector.__repr__ and PyTable.__repr__."""
-	nd = len(pv.size())
+	nd = len(pv.shape)
 	if nd == 1:
 		return _repr_vector(pv)
 	if nd == 2:

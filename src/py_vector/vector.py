@@ -166,7 +166,8 @@ class PyVector():
 		_ALIAS_TRACKER.register(self, id(self._underlying))
 
 
-	def size(self):
+	@property
+	def shape(self):
 		if not self._underlying:
 			return tuple()
 		return (len(self),)
@@ -437,8 +438,8 @@ class PyVector():
 			return self._underlying[key]
 
 		if isinstance(key, tuple):
-			if len(key) != len(self.size()):
-				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.size()}")
+			if len(key) != len(self.shape):
+				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
 			if len(key) == 1:
 				return self[key[0]]
 			return self._underlying[key[-1]][key[:-1]]
@@ -958,7 +959,7 @@ class PyVector():
 		return
 
 	def ndims(self):
-		return len(self.size())
+		return len(self.shape)
 
 	def cols(self, key=None):
 		if isinstance(key, int):
@@ -1182,7 +1183,7 @@ class PyVector():
 
 	def __rmatmul__(self, other):
 		other = self._check_duplicate(other)
-		if len(self.size()) > 1:
+		if len(self.shape) > 1:
 			return PyVector(tuple(x @ other for x in self.cols()))
 		if len(self) != len(other):
 			raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")

@@ -71,9 +71,10 @@ class PyRow(PyVector):
 		"""
 		return tuple(col[self._index] for col in self._raw_cols)
 
-	def size(self):
+	@property
+	def shape(self):
 		"""
-		Recursive size check.
+		Recursive shape check.
 		1. Standard Vector: (len,)
 		2. Vector of Vectors/Tables: (len, inner_dims...)
 		"""
@@ -85,8 +86,8 @@ class PyRow(PyVector):
 		# to see if it has dimensions (is a PyVector/PyTable)
 		first_val = self._raw_cols[0][self._index]
 		
-		if hasattr(first_val, 'size'):
-			return (my_len,) + first_val.size()
+		if hasattr(first_val, 'shape'):
+			return (my_len,) + first_val.shape
 		
 		return (my_len,)
 
@@ -174,8 +175,9 @@ class PyTable(PyVector):
 			return len(self._underlying)
 		return self._length
 
-	def size(self):
-		return (len(self),) + self[0].size()
+	@property
+	def shape(self):
+		return (len(self),) + self[0].shape
 
 	def _build_column_map(self):
 		"""Build mapping from sanitized column names to column indices.
@@ -205,6 +207,22 @@ class PyTable(PyVector):
 		# Use object.__dir__ to get instance attributes, then add column names
 		base_attrs = object.__dir__(self)
 		return sorted(set(base_attrs + list(self._build_column_map().keys())))
+	
+	def column_names(self):
+		"""Return list of column names (original names, not sanitized).
+		
+		Returns
+		-------
+		list
+			List of column names. None for unnamed columns.
+		
+		Examples
+		--------
+		>>> t = PyTable({'x': [1, 2], 'y': [3, 4]})
+		>>> t.column_names()
+		['x', 'y']
+		"""
+		return [col._name for col in self._underlying]
 
 	def __getattr__(self, attr):
 		"""Access columns by sanitized attribute name using pre-computed column map."""
@@ -214,8 +232,12 @@ class PyTable(PyVector):
 			if col_idx is not None:
 				return self._underlying[col_idx]
 		
-		# Attribute not found - raise AttributeError for Pythonic behavior
-		raise AttributeError(f"{self.__class__.__name__!s} object has no attribute '{attr}'")
+		# Fall back to parent class attributes (e.g., .T for transpose)
+		try:
+			return super().__getattribute__(attr)
+		except AttributeError:
+			# Attribute not found - raise AttributeError for Pythonic behavior
+			raise AttributeError(f"{self.__class__.__name__!s} object has no attribute '{attr}'")
 
 	def __setattr__(self, attr, value):
 		"""Intercept column assignments (t.colname = vec) to update underlying columns."""
@@ -300,7 +322,7 @@ class PyTable(PyVector):
 
 	@property
 	def T(self):
-		if len(self.size())==2:
+		if len(self.shape)==2:
 			# Transpose 2D table: columns become rows
 			num_rows = self._length
 			num_cols = len(self._underlying)
@@ -386,8 +408,8 @@ class PyTable(PyVector):
 			return PyTable(selected_cols)
 		
 		if isinstance(key, tuple):
-			if len(key) != len(self.size()):
-				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.size()}")
+			if len(key) != len(self.shape):
+				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
 
 			# Reject 3+ dimensional indexing explicitly
 			if len(key) > 2:
