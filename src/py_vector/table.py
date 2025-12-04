@@ -396,12 +396,46 @@ class PyTable(PyVector):
 					f"got {len(key)} indices."
 				)
 
-			if isinstance(key[0], slice):
-				if isinstance(key[1], int):
-					return self.cols(key[1])[key[0]]
-				return self.copy([col[key[0]] for col in self.cols()[key[1]]])
-			# Let the PyRow handle the column lookup (works for int and str)
-			return self[key[0]][key[1]]
+			# 2D indexing: [row_spec, col_spec]
+			# Support both [rows, cols] and [cols, rows] by checking types
+			row_spec, col_spec = key
+			
+			# Determine which is rows and which is columns
+			# Rows: int or slice
+			# Cols: int, slice, str, or tuple of strings
+			row_is_first = isinstance(row_spec, (int, slice))
+			
+			if not row_is_first:
+				# Swap if columns came first: [('a', 'b'), 1:3] -> [1:3, ('a', 'b')]
+				row_spec, col_spec = col_spec, row_spec
+			
+			# Now row_spec is guaranteed to be rows, col_spec is columns
+			
+			# Get the row-sliced table first
+			if isinstance(row_spec, slice):
+				row_sliced = self[row_spec]  # Returns PyTable
+			elif isinstance(row_spec, int):
+				# Single row -> return PyRow, then index into it
+				return self[row_spec][col_spec]
+			else:
+				raise PyVectorKeyError(f"Invalid row specifier: {type(row_spec)}")
+			
+			# Now select columns from the row-sliced table
+			if isinstance(col_spec, int):
+				# Single column by index
+				return row_sliced.cols(col_spec)
+			elif isinstance(col_spec, slice):
+				# Column slice by index
+				selected = row_sliced.cols()[col_spec]
+				return PyTable(selected)
+			elif isinstance(col_spec, str):
+				# Single column by name
+				return row_sliced[col_spec]
+			elif isinstance(col_spec, tuple) and all(isinstance(k, str) for k in col_spec):
+				# Multiple columns by name
+				return row_sliced[col_spec]
+			else:
+				raise PyVectorKeyError(f"Invalid column specifier: {type(col_spec)}")
 
 		if isinstance(key, int):
 			# Effectively a different input type (single not a list). Returning a value, not a vector.
