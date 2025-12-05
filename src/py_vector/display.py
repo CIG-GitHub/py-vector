@@ -3,6 +3,7 @@
 from __future__ import annotations
 from datetime import date
 from typing import List
+from .naming import _get_reserved_names
 
 
 # How many rows/columns to show before inserting "..."
@@ -10,14 +11,40 @@ MAX_HEAD_ROWS = 5
 MAX_HEAD_COLS = 5
 
 
-def _needs_quoting(name: str) -> bool:
-	"""A name needs quoting if it contains anything outside [A-Za-z0-9_]
-	OR has leading/trailing whitespace."""
+def _needs_quote(name: str) -> bool:
+	"""Determine if a column name needs quoting in repr output.
+	
+	A name needs quoting if:
+	- It's empty
+	- It's not a valid Python identifier
+	- It starts with a digit
+	- It parses as a number
+	- It collides with PyVector/PyTable reserved method names
+	"""
+	# Always quote empty names
 	if not name:
-		return False
-	if name != name.strip():
 		return True
-	return not all(c.isalnum() or c == "_" for c in name)
+
+	# If it's not a valid identifier (spaces, punctuation, etc.)
+	if not name.isidentifier():
+		return True
+
+	# If it starts with a digit, even if isidentifier() somehow allowed it
+	if name[0].isdigit():
+		return True
+
+	# If it parses as a number (int, float, maybe with sign), quote it
+	try:
+		float(name)
+		return True
+	except ValueError:
+		pass
+
+	# If the name collides with a method/attribute name, quote it
+	if name.lower() in _get_reserved_names():
+		return True
+
+	return False
 
 
 def _format_column(col, max_preview: int = MAX_HEAD_ROWS) -> List[str]:
@@ -97,16 +124,14 @@ def _header_rows(display_names, sanitized_names):
 	# Row 1: display names (quoted if needed)
 	if any_display:
 		row = []
-		for name in display_names:
-			if name == "...":
-				row.append("...")
-			elif _needs_quoting(name):
-				row.append(repr(name))
-			else:
-				row.append(name if name else "")
-		rows.append(row)
-
-	# Row 2: sanitized names (if mismatch or no display names)
+	for name in display_names:
+		if name == "...":
+			row.append("...")
+		elif _needs_quote(name):
+			row.append(repr(name))
+		else:
+			row.append(name if name else "")
+	rows.append(row)	# Row 2: sanitized names (if mismatch or no display names)
 	if any_mismatch or not any_display:
 		rows.append([("." + san) if san and san != "..." else san for san in sanitized_names])
 
@@ -190,7 +215,7 @@ def _repr_vector(v) -> str:
 	data_width = max(len(s) for s in formatted) if formatted else 0
 	header_width = 0
 	if v._name:
-		header_text = repr(v._name) if _needs_quoting(v._name) else v._name
+		header_text = repr(v._name) if _needs_quote(v._name) else v._name
 		header_width = len(header_text)
 	
 	width = max(data_width, header_width)
