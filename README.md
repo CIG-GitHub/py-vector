@@ -22,13 +22,14 @@ t >>= {'total': t.price * t.quantity}
 t >>= {'tax': t.total * 0.1}
 
 t
-# 'price ($)'  quantity  total  tax
-#      .price  .quantity  .total  .tax
-#          10          4      40   4.0
-#          20          5     100  10.0
-#          30          6     180  18.0
+# 'price ($)'   quantity   total      tax
+#      .price  .quantity  .total     .tax
+#       [int]      [int]   [int]  [float]
+#          10          4      40      4.0
+#          20          5     100     10.0
+#          30          6     180     18.0
 #
-# 3×4 table <int, int, int, float>
+# 3×4 table <mixed>
 ```
 
 ## Real-World Example: Interactive CSV Exploration
@@ -52,12 +53,12 @@ t >>= {'total': total}
 # Inspect (original names preserved in display!)
 t
 # 'price ($)'  'quantity'   'total'
-#      .price  .quantity    .total
-#          10           4       40
-#          20           5      100
-#          30           6      180
+#      .price   .quantity    .total
+#          10           4        40
+#          20           5       100
+#          30           6       180
 #
-# 3×3 table <int, int, int>
+# 3×3 table <int>
 ```
 
 **The power**: You don't need to know the CSV contents upfront. Tab completion guides you, the repr shows you everything, and messy column names are automatically cleaned for dot-access.
@@ -124,7 +125,7 @@ t
 #            2           20      40
 #            3           30      90
 #
-# 3×3 table <int, int, int>
+# 3×3 table <int>
 ```
 
 ### Boolean masking
@@ -138,7 +139,7 @@ filtered
 #            2           20      40
 #            3           30      90
 #
-# 2×3 table <int, int, int>
+# 2×3 table <int>
 ```
 
 ### Joins
@@ -150,12 +151,13 @@ scores = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
 result = customers.inner_join(scores, left_on='id', right_on='id')
 
 result
-# id  name        id  score
-# .id  .name  .id__1  .score
-#   2  'Bob'       2      85
-#   3  'Charlie'   3      90
+#    id  name           id   score
+#   .id  .name      .id__2  .score
+# [int]  [str]       [int]   [int]
+#     2  'Bob'           2      85
+#     3  'Charlie'       3      90
 #
-# 2×4 table <int, str, int, int>
+# 2×4 table <mixed>
 ```
 
 ### Aggregations
@@ -171,10 +173,11 @@ result = t.aggregate(
 
 result
 # customer  amount_sum  amount_count
+#    [str]       [int]         [int]
 #      'A'         250             2
 #      'B'         200             1
 #
-# 2×3 table <str, int, int>
+# 2×3 table <mixed>
 ```
 
 **See [docs/joins-aggregations.md](docs/joins-aggregations.md) for detailed examples.**
@@ -205,7 +208,7 @@ t
 # 98   9604
 # 99   9801
 #
-# 100×2 table <int, int>
+# 100×2 table <int>
 ```
 
 Head/tail preview + type annotations + dimensions—no need for `.head()`, `.info()`, etc.

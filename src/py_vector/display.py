@@ -349,7 +349,14 @@ def _repr_table(tbl) -> str:
 	if show_types_in_header:
 		lines.append(_footer(tbl, None, False, MAX_HEAD_COLS).replace(f"<{tbl._dtype.kind.__name__ if tbl._dtype else 'object'}>", "<mixed>"))
 	else:
-		lines.append(_footer(tbl, dtypes_all, truncated, MAX_HEAD_COLS))
+		# Check if all dtypes are the same (homogeneous table)
+		unique_dtypes = set(dtypes_all)
+		if len(unique_dtypes) == 1:
+			# Homogeneous - show single type
+			lines.append(_footer(tbl, None, False, MAX_HEAD_COLS).replace(f"<{tbl._dtype.kind.__name__ if tbl._dtype else 'object'}>", f"<{dtypes_all[0]}>"))
+		else:
+			# Keep showing all types
+			lines.append(_footer(tbl, dtypes_all, truncated, MAX_HEAD_COLS))
 
 	return "\n".join(lines)
 
