@@ -276,7 +276,7 @@ for idx, col in enumerate(cols):
 
 ```python
 v = PyVector([10, None, 20])
-sum(v)    # 30 (None excluded)
+v.sum()   # 30 (None excluded)
 len(v)    # 3 (None counted)
 ```
 
