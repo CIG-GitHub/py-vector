@@ -105,8 +105,14 @@ def _compute_headers(cols, col_indices, sanitize_func, uniquify_func):
 			san = f"col{idx}_"
 		sanitized_names.append(san)
 
-		# Dtype
-		dtypes.append(col._dtype.kind.__name__ if col._dtype else "object")
+		# Dtype (with nullable indicator)
+		if col._dtype:
+			dtype_str = col._dtype.kind.__name__
+			if col._dtype.nullable:
+				dtype_str += "?"
+			dtypes.append(dtype_str)
+		else:
+			dtypes.append("object")
 
 	return display_names, sanitized_names, dtypes
 
@@ -132,8 +138,12 @@ def _is_structural_change(display_name: str, sanitized_name: str) -> bool:
 	return True
 
 
-def _header_rows(display_names, sanitized_names):
-	"""Decide which header rows to show based on display vs sanitized names."""
+def _header_rows(display_names, sanitized_names, dtypes):
+	"""Decide which header rows to show based on display vs sanitized names.
+	
+	Returns (header_rows, show_types_in_header) where show_types_in_header indicates
+	whether types are heterogeneous and should be shown in header instead of footer.
+	"""
 	any_display = any(n for n in display_names if n != "...")
 	
 	# Only show dot-access row if there's a structural change, not just case
@@ -142,6 +152,10 @@ def _header_rows(display_names, sanitized_names):
 		for disp, san in zip(display_names, sanitized_names)
 		if disp != "..." and san != "..."
 	)
+
+	# Check if types are homogeneous (excluding "...")
+	unique_types = set(dt for dt in dtypes if dt != "...")
+	show_types_in_header = len(unique_types) > 1
 
 	rows = []
 
@@ -161,7 +175,11 @@ def _header_rows(display_names, sanitized_names):
 	if any_structural_change or not any_display:
 		rows.append([("." + san) if san and san != "..." else san for san in sanitized_names])
 
-	return rows
+	# Row 3 (or 2): type annotations (only if heterogeneous)
+	if show_types_in_header:
+		rows.append([f"[{dt}]" if dt != "..." else "..." for dt in dtypes])
+
+	return rows, show_types_in_header
 
 
 def _align_columns(formatted_cols, header_rows, col_dtypes):
@@ -309,7 +327,7 @@ def _repr_table(tbl) -> str:
 		dtypes_displayed.insert(MAX_HEAD_COLS, "...")
 
 	# Build header rows
-	header_rows = _header_rows(disp, san)
+	header_rows, show_types_in_header = _header_rows(disp, san, dtypes_displayed)
 
 	# Align everything
 	aligned_cols, aligned_headers = _align_columns(formatted_cols, header_rows, dtypes_displayed)
@@ -326,7 +344,12 @@ def _repr_table(tbl) -> str:
 		lines.append(row)
 
 	lines.append("")
-	lines.append(_footer(tbl, dtypes_all, truncated, MAX_HEAD_COLS))
+	
+	# Footer: use <mixed> if types are in header, otherwise show type info
+	if show_types_in_header:
+		lines.append(_footer(tbl, None, False, MAX_HEAD_COLS).replace(f"<{tbl._dtype.kind.__name__ if tbl._dtype else 'object'}>", "<mixed>"))
+	else:
+		lines.append(_footer(tbl, dtypes_all, truncated, MAX_HEAD_COLS))
 
 	return "\n".join(lines)
 
