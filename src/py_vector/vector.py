@@ -264,6 +264,20 @@ class PyVector():
 			dtype = self._dtype,
 			name = use_name,
 			as_row = self._display_as_row)
+	
+	def to_object(self):
+		"""
+		Convert this vector to object dtype, allowing mixed types.
+		
+		Returns a new PyVector with dtype=object containing the same values.
+		Useful when you need to assign values of different types to a vector.
+		
+		Example:
+			a = PyVector([1, 2, 3, 4])   # int vector
+			a = a.to_object()            # now object vector
+			a[2] = "ryan"                # allowed - can mix types
+		"""
+		return PyVector(list(self._underlying), dtype=object, name=self._name, as_row=self._display_as_row)
 
 	def rename(self, new_name):
 		"""Rename this vector (returns self for chaining)"""
@@ -666,7 +680,8 @@ class PyVector():
 		if updates:
 			new_values = [v for _, v in updates]
 
-			if self._dtype is not None:
+			# Object dtype accepts any type - skip validation
+			if self._dtype is not None and self._dtype.kind is not object:
 				incompatible = None
 				for val in new_values:
 					try:
@@ -674,7 +689,7 @@ class PyVector():
 					except TypeError:
 						incompatible = val
 						break
-
+	
 				if incompatible is not None:
 					required_dtype = infer_dtype([incompatible])
 					try:
@@ -686,7 +701,6 @@ class PyVector():
 							f"{self._dtype.kind.__name__} vector. "
 							f"Promotion not supported."
 						)
-
 		# =====================================================================
 		# MUTATE — copy-on-write + fingerprint updates
 		# =====================================================================
