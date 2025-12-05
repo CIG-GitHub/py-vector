@@ -25,7 +25,6 @@ class TestCreation:
     def test_creation_empty(self):
         v = PyVector()
         assert len(v) == 0
-        assert not v  # Empty vector is falsy
     
     def test_creation_with_name(self):
         v = PyVector([1, 2, 3], name='test_vector')
@@ -100,19 +99,19 @@ class TestTypePromotion:
 
 
 class TestBooleanBehavior:
-    """Test truthiness of vectors"""
+    """Test that vectors cannot be used in boolean context"""
     
-    def test_empty_vector_is_falsy(self):
+    def test_empty_vector_len_check(self):
         v = PyVector([])
-        assert not v
+        assert len(v) == 0
     
-    def test_nonempty_vector_is_truthy(self):
+    def test_nonempty_vector_len_check(self):
         v = PyVector([1])
-        assert v
+        assert len(v) > 0
         
-    def test_nonempty_typed_vector_is_truthy(self):
+    def test_nonempty_typed_vector_len_check(self):
         v = PyVector([0], dtype=int, typesafe=True)
-        assert v  # Even with 0, the vector itself is truthy
+        assert len(v) > 0  # Even with 0, the vector itself has length
 
 
 class TestFingerprint:

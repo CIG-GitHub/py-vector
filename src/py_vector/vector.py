@@ -689,7 +689,7 @@ class PyVector():
 					except TypeError:
 						incompatible = val
 						break
-	
+
 				if incompatible is not None:
 					required_dtype = infer_dtype([incompatible])
 					try:
@@ -900,6 +900,14 @@ class PyVector():
 		return self._unary_operation(operator.abs, '__abs__')
 
 	def __invert__(self):
+		# For boolean vectors, use logical NOT instead of bitwise NOT
+		if self._dtype and self._dtype.kind is bool:
+			return PyVector(
+				tuple(not x for x in self),
+				dtype=self._dtype,
+				name=self._name,
+				as_row=self._display_as_row
+			)
 		return self._unary_operation(operator.invert, '__invert__')
 
 	def __truediv__(self, other):
@@ -1250,27 +1258,15 @@ class PyVector():
 
 	def __bool__(self):
 		"""
-		Standard Python truthiness: returns True if the vector is not empty.
+		Raises an error because using a vector in a boolean context is ambiguous.
 		
-		Note: Emits a warning because users often mistakenly use 'if vec' 
-		when they mean 'if vec.any()'.
+		Users often mistakenly use 'if vec' when they mean 'if vec.any()' or 'if vec.all()'.
+		Use len(vec) > 0 to check for emptiness.
 		"""
-		# 1. The check is simply "is this empty?"
-		is_non_empty = bool(self._underlying)
-
-		# 2. The Warning
-		# We only warn if it IS non-empty, because 'if empty_vec' is rarely a logic bug.
-		if is_non_empty:
-			# Check if this vector is actually a boolean result from a comparison
-			if self._dtype is not None and self._dtype.kind == bool:
-				warnings.warn(
-					"PyVector is being used in a boolean context (e.g., 'if vector:'). "
-					"This checks for emptiness (len > 0), not element-wise truth. "
-					"Use .any() or .all() for element-wise checks.",
-					stacklevel=2
-				)
-
-		return is_non_empty
+		raise TypeError(
+			"PyVector cannot be used in a boolean context (e.g., 'if vector:'). "
+			"Use .any() or .all() for element-wise checks, or len(vector) > 0 to check for emptiness."
+		)
 
 
 	def __lshift__(self, other):

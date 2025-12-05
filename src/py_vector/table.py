@@ -171,7 +171,7 @@ class PyTable(PyVector):
 		self._column_map = self._build_column_map()
 
 	def __len__(self):
-		if not self:
+		if len(self._underlying) == 0:
 			return 0
 		if isinstance(self._underlying[0], PyTable):
 			return len(self._underlying)
