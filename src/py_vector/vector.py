@@ -2,6 +2,7 @@ import operator
 import warnings
 import re
 import math
+from builtins import isinstance as b_isinstance
 
 from .alias_tracker import _ALIAS_TRACKER, AliasError
 from .errors import PyVectorTypeError
@@ -402,6 +403,35 @@ class PyVector():
 		"""
 		return PyVector(tuple(elem is None for elem in self._underlying), dtype=DataType(bool))
 
+	def isinstance(self, types):
+		"""
+		Check if each element is an instance of the given type(s).
+		
+		Parameters
+		----------
+		types : type or tuple of types
+			Type or tuple of types to check against (use type(None) for NoneType)
+		
+		Returns
+		-------
+		PyVector
+			Boolean vector, True where element matches type(s)
+		
+		Examples
+		--------
+		>>> v = PyVector([1, "hello", 3.14, None])
+		>>> v.isinstance(int)
+		PyVector([True, False, False, False])
+		>>> v.isinstance((int, float))
+		PyVector([True, False, True, False])
+		>>> v.isinstance(type(None))
+		PyVector([False, False, False, True])
+		"""
+		return PyVector(
+			tuple(b_isinstance(elem, types) for elem in self._underlying),
+			dtype=DataType(bool)
+		)
+
 	@property
 	def _(self):
 		""" streamlined display """
@@ -711,6 +741,12 @@ class PyVector():
 			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
 			return PyVector(result_values, dtype=DataType(bool, nullable=False))
 		# Scalar comparison
+		if other is None and op in (operator.eq, operator.ne):
+			warnings.warn(
+				"Null comparison: `v == None` always returns False for null values. "
+				"Use `v.isna()` to test for nulls.",
+				stacklevel=2
+			)
 		result_values = tuple(False if x is None else bool(op(x, other)) for x in self)
 		return PyVector(result_values, dtype=DataType(bool, nullable=False))	# Now, we can redefine the comparison methods using the helper function
 	
@@ -733,22 +769,22 @@ class PyVector():
 		return self._elementwise_compare(other, operator.ne)
 
 	def __and__(self, other):
-		return self._elementwise_compare(other, operator.and_)
+		return self._elementwise_operation(other, operator.and_, '__and__', '&')
 
 	def __or__(self, other):
-		return self._elementwise_compare(other, operator.or_)
+		return self._elementwise_operation(other, operator.or_, '__or__', '|')
 
 	def __xor__(self, other):
-		return self._elementwise_compare(other, operator.xor)
+		return self._elementwise_operation(other, operator.xor, '__xor__', '^')
 
 	def __rand__(self, other):
-		return self._elementwise_compare(other, operator.and_)
+		return self._elementwise_operation(other, lambda x, y: operator.and_(y, x), '__rand__', '&')
 
 	def __ror__(self, other):
-		return self._elementwise_compare(other, operator.or_)
+		return self._elementwise_operation(other, lambda x, y: operator.or_(y, x), '__ror__', '|')
 
 	def __rxor__(self, other):
-		return self._elementwise_compare(other, operator.xor)
+		return self._elementwise_operation(other, lambda x, y: operator.xor(y, x), '__rxor__', '^')
 
 
 	""" Math operations """

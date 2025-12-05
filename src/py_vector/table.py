@@ -177,7 +177,12 @@ class PyTable(PyVector):
 
 	@property
 	def shape(self):
-		return (len(self),) + self[0].shape
+		n_rows = len(self)
+		if n_rows == 0:
+			# Empty table - need to check column count
+			n_cols = len(self._underlying) if hasattr(self, '_underlying') else 0
+			return (0, n_cols)
+		return (n_rows,) + self[0].shape
 
 	def _build_column_map(self):
 		"""Build mapping from sanitized column names to column indices.
