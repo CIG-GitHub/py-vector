@@ -70,7 +70,11 @@ def _format_column(col, max_preview: int = MAX_HEAD_ROWS) -> List[str]:
 		elif col._dtype and col._dtype.kind is str:
 			out.append(repr(v))
 		else:
-			out.append(str(v))
+			# Object type - quote strings
+			if isinstance(v, str):
+				out.append(repr(v))
+			else:
+				out.append(str(v))
 
 	# Align: numeric right, others left
 	max_len = max(len(s) for s in out) if out else 0
