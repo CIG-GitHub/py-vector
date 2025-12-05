@@ -111,12 +111,36 @@ def _compute_headers(cols, col_indices, sanitize_func, uniquify_func):
 	return display_names, sanitized_names, dtypes
 
 
+def _is_structural_change(display_name: str, sanitized_name: str) -> bool:
+	"""Check if sanitization involved structural changes beyond just case normalization.
+	
+	Returns True if there were meaningful transformations like:
+	- Character removal/substitution (spaces, punctuation)
+	- Prefix addition (digit handling)
+	- Suffix addition (reserved name collision)
+	
+	Returns False if only case changed.
+	"""
+	if not display_name or not sanitized_name:
+		return True
+	
+	# If lowercasing the display name equals sanitized, it's just case change
+	if display_name.lower() == sanitized_name:
+		return False
+	
+	# Otherwise there was a structural transformation
+	return True
+
+
 def _header_rows(display_names, sanitized_names):
 	"""Decide which header rows to show based on display vs sanitized names."""
 	any_display = any(n for n in display_names if n != "...")
-	any_mismatch = any(
-		disp and san and disp != san and san != "..."
+	
+	# Only show dot-access row if there's a structural change, not just case
+	any_structural_change = any(
+		_is_structural_change(disp, san)
 		for disp, san in zip(display_names, sanitized_names)
+		if disp != "..." and san != "..."
 	)
 
 	rows = []
@@ -124,15 +148,17 @@ def _header_rows(display_names, sanitized_names):
 	# Row 1: display names (quoted if needed)
 	if any_display:
 		row = []
-	for name in display_names:
-		if name == "...":
-			row.append("...")
-		elif _needs_quote(name):
-			row.append(repr(name))
-		else:
-			row.append(name if name else "")
-	rows.append(row)	# Row 2: sanitized names (if mismatch or no display names)
-	if any_mismatch or not any_display:
+		for name in display_names:
+			if name == "...":
+				row.append("...")
+			elif _needs_quote(name):
+				row.append(repr(name))
+			else:
+				row.append(name if name else "")
+		rows.append(row)
+
+	# Row 2: sanitized names (only if structural change or no display names)
+	if any_structural_change or not any_display:
 		rows.append([("." + san) if san and san != "..." else san for san in sanitized_names])
 
 	return rows
