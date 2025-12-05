@@ -68,9 +68,10 @@ def _format_column(col, max_preview: int = MAX_HEAD_ROWS) -> List[str]:
 		elif col._dtype and col._dtype.kind is date:
 			out.append(v.isoformat())
 		elif col._dtype and col._dtype.kind is str:
-			out.append(repr(v))
+			# Pure str columns: no quotes (type already known from footer)
+			out.append(str(v) if v is not None else 'None')
 		else:
-			# Object type - quote strings
+			# Object type - quote strings to distinguish from other types
 			if isinstance(v, str):
 				out.append(repr(v))
 			else:

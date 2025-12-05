@@ -499,6 +499,120 @@ class PyTable(PyVector):
 				dtype = self._dtype
 			)
 
+	def __setitem__(self, key, value):
+		"""
+		Support for 2D assignment:
+		1. t[row, col] = scalar
+		2. t[row_idx, :] = [values]  (Row assignment)
+		3. t[row_slice, col_slice] = other_table (Region assignment)
+		"""
+		row_spec, col_spec = None, None
+
+		# --- 1. Normalize Key ---
+		if isinstance(key, tuple):
+			# t[row, col]
+			if len(key) != 2:
+				raise PyVectorKeyError("PyTable assignment requires 1D (row) or 2D (row, col) key.")
+			row_spec, col_spec = key
+		else:
+			# t[row] or t[slice] -> implies all columns
+			row_spec = key
+			col_spec = slice(None)
+
+		# --- 2. Resolve Target Columns ---
+		# This replicates the lookup logic from __getitem__
+		target_indices = []
+		n_cols = len(self._underlying)
+		
+		if isinstance(col_spec, slice):
+			target_indices = list(range(n_cols)[col_spec])
+		elif isinstance(col_spec, int):
+			target_indices = [col_spec]
+		elif isinstance(col_spec, str):
+			# Look up by name
+			idx = self._column_map.get(col_spec) or self._column_map.get(col_spec.lower())
+			if idx is None:
+				raise PyVectorKeyError(f"Column '{col_spec}' not found")
+			target_indices = [idx]
+		elif isinstance(col_spec, (tuple, list)):
+			# Handle list of names/ints
+			for c in col_spec:
+				if isinstance(c, str):
+					idx = self._column_map.get(c) or self._column_map.get(c.lower())
+					if idx is None:
+						raise PyVectorKeyError(f"Column '{c}' not found")
+					target_indices.append(idx)
+				elif isinstance(c, int):
+					target_indices.append(c)
+		else:
+			raise PyVectorTypeError(f"Invalid column index type: {type(col_spec)}")
+
+		if not target_indices:
+			return # No columns selected, nothing to do
+
+		# --- 3. Handle Assignment ---
+		
+		# CASE A: Scalar Assignment (Broadcast)
+		# t[0:5, 'A'] = 10
+		if not hasattr(value, '__iter__') or isinstance(value, (str, bytes)):
+			for col_idx in target_indices:
+				self._underlying[col_idx][row_spec] = value
+			return
+
+		# CASE B: Single Row Assignment
+		# t[0, :] = [1, 2, 3]
+		if isinstance(row_spec, int):
+			# Materialize generator to avoid exhaustion if reused
+			val_seq = list(value)
+			if len(val_seq) != len(target_indices):
+				raise PyVectorValueError(
+					f"Row assignment length mismatch: Table target has {len(target_indices)} columns, "
+					f"but value has {len(val_seq)} items."
+				)
+			
+			for i, col_idx in enumerate(target_indices):
+				self._underlying[col_idx][row_spec] = val_seq[i]
+			return
+
+		# CASE C: Rectangular/Table Assignment
+		# t[1:3, 2:4] = other_table
+		if isinstance(value, PyTable):
+			if len(value.cols()) != len(target_indices):
+				raise PyVectorValueError(
+					f"Column count mismatch: Target has {len(target_indices)} cols, "
+					f"source table has {len(value.cols())} cols."
+				)
+			
+			# We delegate row-length validation to the vector.__setitem__ calls below
+			for i, col_idx in enumerate(target_indices):
+				self._underlying[col_idx][row_spec] = value.cols()[i]
+			return
+
+		# CASE D: Raw 2D Iterable Assignment (List of Columns? List of Rows?)
+		# Ambiguity Trap: Is [[1,2], [3,4]] two rows of two, or two columns of two?
+		# PyVector standard: "Iterables usually mean columns". 
+		# If you pass a list of lists, we treat it as list-of-columns to match PyTable structure.
+		# SPECIAL CASE: If we have a single target column and value is a flat list,
+		# treat it as values for that column, not as multiple columns.
+		if isinstance(value, (list, tuple)):
+			# Single column slice assignment: t[:, 'x'] = [1, 2, 3]
+			if len(target_indices) == 1:
+				# Check if it's a flat list (not nested)
+				if not value or not isinstance(value[0], (list, tuple, PyVector)):
+					# Flat list -> assign to the single column
+					self._underlying[target_indices[0]][row_spec] = value
+					return
+			
+			if len(value) != len(target_indices):
+				raise PyVectorValueError(f"Shape mismatch: expected {len(target_indices)} columns/items.")
+			
+			# Assume value[i] corresponds to target_indices[i]
+			for i, col_idx in enumerate(target_indices):
+				self._underlying[col_idx][row_spec] = value[i]
+			return
+
+		raise PyVectorTypeError(f"Unsupported assignment value type: {type(value)}")
+
 	def __iter__(self):
 		"""
 		Iterate over rows using the Fast View.
