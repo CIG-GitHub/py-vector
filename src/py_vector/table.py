@@ -165,8 +165,6 @@ class PyTable(PyVector):
 			for i, col_name in enumerate(original_names):
 				if i < len(self._underlying):
 					self._underlying[i]._name = col_name
-		
-		# Initialize column map (may become stale after renames, but needed for PyRow)
 		self._column_map = self._build_column_map()
 		
 
@@ -232,12 +230,12 @@ class PyTable(PyVector):
 		return [col._name for col in self._underlying]
 
 	def __getattr__(self, attr):
-		"""Access columns by sanitized attribute name, rebuilding map on each access."""
-		# Rebuild column map fresh to catch any column renames
-		col_map = self._build_column_map()
-		col_idx = col_map.get(attr) or col_map.get(attr.lower())
-		if col_idx is not None:
-			return self._underlying[col_idx]
+		"""Access columns by sanitized attribute name using pre-computed column map."""
+		# Use cached _column_map instead of rebuilding
+		if hasattr(self, '_column_map'):
+			col_idx = self._column_map.get(attr) or self._column_map.get(attr.lower())
+			if col_idx is not None:
+				return self._underlying[col_idx]
 		
 		# Fall back to parent class attributes (e.g., .T for transpose)
 		try:
@@ -288,6 +286,7 @@ class PyTable(PyVector):
 		for col in self._underlying:
 			if col._name == old_name:
 				col._name = new_name
+				self._column_map = self._build_column_map()
 				return self
 		raise _missing_col_error(old_name)
 	
@@ -323,6 +322,7 @@ class PyTable(PyVector):
 					col._name = new
 					break
 
+		self._column_map = self._build_column_map()
 		return self
 
 	@property
