@@ -76,6 +76,7 @@ class PyVector():
 	_underlying = None
 	_name = None
 	_display_as_row = False
+	_wild = False  # Flag for name changes (used by PyTable column tracking)
 	
 	# Fingerprint constants for O(1) change detection
 	_FP_P = (1 << 61) - 1  # Mersenne prime (2^61 - 1)
@@ -149,6 +150,7 @@ class PyVector():
 		if name is not None:
 			self._name = name
 		self._display_as_row = as_row
+		self._wild = True
 
 		# We check self.__dict__ directly to avoid triggering PyTable.__getattr__
 		# which would crash because the table isn't initialized yet.
@@ -266,7 +268,12 @@ class PyVector():
 	def rename(self, new_name):
 		"""Rename this vector (returns self for chaining)"""
 		self._name = new_name
+		self._wild = True  # Mark as wild when renamed
 		return self
+	
+	def _mark_tame(self):
+		"""Mark this vector as tame (not wild)"""
+		self._wild = False
 
 	def __repr__(self):
 		return(_printr(self))
@@ -769,22 +776,22 @@ class PyVector():
 		return self._elementwise_compare(other, operator.ne)
 
 	def __and__(self, other):
-		return self._elementwise_operation(other, operator.and_, '__and__', '&')
+		return self._elementwise_compare(other, operator.and_)
 
 	def __or__(self, other):
-		return self._elementwise_operation(other, operator.or_, '__or__', '|')
+		return self._elementwise_compare(other, operator.or_)
 
 	def __xor__(self, other):
-		return self._elementwise_operation(other, operator.xor, '__xor__', '^')
+		return self._elementwise_compare(other, operator.xor)
 
 	def __rand__(self, other):
-		return self._elementwise_operation(other, lambda x, y: operator.and_(y, x), '__rand__', '&')
+		return self._elementwise_compare(other, operator.and_)
 
 	def __ror__(self, other):
-		return self._elementwise_operation(other, lambda x, y: operator.or_(y, x), '__ror__', '|')
+		return self._elementwise_compare(other, operator.or_)
 
 	def __rxor__(self, other):
-		return self._elementwise_operation(other, lambda x, y: operator.xor(y, x), '__rxor__', '^')
+		return self._elementwise_compare(other, operator.xor)
 
 
 	""" Math operations """
@@ -1686,7 +1693,6 @@ class _PyDate(PyVector):
 		if isinstance(other, int):
 			return PyVector(tuple((date.fromordinal(s.toordinal() + other) if s is not None else None) for s in self._underlying))
 		return super().add(other)
-
 
 	def eomonth(self):
 		out = []

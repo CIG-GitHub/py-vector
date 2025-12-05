@@ -155,18 +155,20 @@ class PyTable(PyVector):
 		
 		# Set _dtype to None explicitly since PyTable bypasses PyVector.__new__
 		self._dtype = None
+		self._column_map = None
 		
 		# Call parent constructor
 		super().__init__(initial, dtype=dtype, name=name)
 		
-		# CRITICAL: Restore column names after parent init
+		# Restore column names after parent init
 		# The parent PyVector.__init__ may have modified self._underlying
 		if original_names:
 			for i, col_name in enumerate(original_names):
 				if i < len(self._underlying):
 					self._underlying[i]._name = col_name
-		self._column_map = self._build_column_map()
 		
+		# Build column map
+		self._column_map = self._build_column_map()
 
 	def __len__(self):
 		if not self:
@@ -205,6 +207,7 @@ class PyTable(PyVector):
 				# Unnamed column, use system name
 				sanitized = f'col{idx}_'
 			column_map[sanitized] = idx
+			col._mark_tame()
 		return column_map
 	
 	def __dir__(self):
@@ -231,11 +234,13 @@ class PyTable(PyVector):
 
 	def __getattr__(self, attr):
 		"""Access columns by sanitized attribute name using pre-computed column map."""
-		# Use cached _column_map instead of rebuilding
-		if hasattr(self, '_column_map'):
-			col_idx = self._column_map.get(attr) or self._column_map.get(attr.lower())
-			if col_idx is not None:
-				return self._underlying[col_idx]
+		# Check if any column has been renamed and rebuild map if needed
+		if any(col._wild for col in self._underlying or []):
+			self._column_map = self._build_column_map()
+
+		col_idx = self._column_map.get(attr) or self._column_map.get(attr.lower())
+		if col_idx is not None:
+			return self._underlying[col_idx]
 		
 		# Fall back to parent class attributes (e.g., .T for transpose)
 		try:
@@ -247,12 +252,12 @@ class PyTable(PyVector):
 	def __setattr__(self, attr, value):
 		"""Intercept column assignments (t.colname = vec) to update underlying columns."""
 		# Let instance attributes initialize normally (before __init__ completes)
-		if attr in ('_underlying', '_length', '_column_map', '_dtype', '_name', '_display_as_row', '_fp', '_fp_powers'):
+		if attr in ('_underlying', '_length', '_column_map', '_dtype', '_name', '_display_as_row', '_fp', '_fp_powers', '_wild'):
 			object.__setattr__(self, attr, value)
 			return
 		
 		# After initialization, check if setting an existing column
-		if hasattr(self, '_column_map'):
+		if self._column_map is not None:
 			col_idx = self._column_map.get(attr) or self._column_map.get(attr.lower())
 			if col_idx is not None:
 				# Replace the column in _underlying
