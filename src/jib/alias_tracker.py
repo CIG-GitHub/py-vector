@@ -9,18 +9,18 @@ class AliasError(Exception):
 
 class _AliasTracker:
     """
-    Tracks which PyVector instances reference the same underlying tuple.
+    Tracks which Vector instances reference the same underlying tuple.
 
     Key design points:
-    - Uses id(tuple) → list[weakref.ref(PyVector)]
-    - No hashing of PyVector objects (they remain unhashable)
+    - Uses id(tuple) → list[weakref.ref(Vector)]
+    - No hashing of Vector objects (they remain unhashable)
     - No use of WeakSet (because that requires hashing)
     - Pure identity tracking
     - Auto-prunes dead references
     """
 
     def __init__(self):
-        # tuple_id -> list of weakrefs to PyVectors using that tuple
+        # tuple_id -> list of weakrefs to Vectors using that tuple
         self._registry = {}
 
     def _cleanup_dead_refs(self, refs):
@@ -29,7 +29,7 @@ class _AliasTracker:
 
     def register(self, vec, tuple_id):
         """
-        Register a PyVector as sharing the tuple with key tuple_id.
+        Register a Vector as sharing the tuple with key tuple_id.
         """
         refs = self._registry.setdefault(tuple_id, [])
         
@@ -50,7 +50,7 @@ class _AliasTracker:
 
     def unregister(self, vec, tuple_id):
         """
-        Remove a PyVector from the registry for a given tuple_id.
+        Remove a Vector from the registry for a given tuple_id.
         If that tuple_id has no remaining owners, delete the entry.
         """
         refs = self._registry.get(tuple_id)
@@ -85,7 +85,7 @@ class _AliasTracker:
         alive = self._cleanup_dead_refs(refs)
         self._registry[tuple_id] = alive
 
-        # Count how many PyVectors still alive share this tuple
+        # Count how many Vectors still alive share this tuple
         owners = [r() for r in alive if r() is not None]
 
         if len(owners) <= 1:
@@ -93,10 +93,11 @@ class _AliasTracker:
 
         # >1 owner → alias detected
         raise AliasError(
-            "This PyVector shares underlying storage with another.\n"
+            "This Vector shares underlying storage with another.\n"
             "Use .copy() to create an independent, writable vector."
         )
 
 
-# THE SINGLETON (imported by PyVector)
+# THE SINGLETON (imported by Vector)
 _ALIAS_TRACKER = _AliasTracker()
+

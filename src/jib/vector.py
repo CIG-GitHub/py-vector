@@ -5,10 +5,10 @@ import math
 from builtins import isinstance as b_isinstance
 
 from .alias_tracker import _ALIAS_TRACKER, AliasError
-from .errors import PyVectorTypeError
-from .errors import PyVectorIndexError
-from .errors import PyVectorValueError
-from .errors import PyVectorKeyError
+from .errors import JibTypeError
+from .errors import JibIndexError
+from .errors import JibValueError
+from .errors import JibKeyError
 from .display import _printr
 from .naming import _sanitize_user_name
 from .naming import _uniquify
@@ -50,7 +50,7 @@ def _safe_sortable_list(xs: Iterable[Any]) -> List[Any]:
 
 
 class MethodProxy:
-	"""Proxy that defers method calls to each element in a PyVector."""
+	"""Proxy that defers method calls to each element in a Vector."""
 	def __init__(self, vector, method_name):
 		self._vector = vector
 		self._method_name = method_name
@@ -63,20 +63,20 @@ class MethodProxy:
 				results.append(None)
 			else:
 				results.append(getattr(elem, method)(*args, **kwargs))
-		return PyVector(results)
+		return Vector(results)
 
 
 # ============================================================
 # Main backend
 # ============================================================
 
-class PyVector():
+class Vector():
 	""" Iterable vector with optional type safety """
 	_dtype = None  # DataType instance (private)
 	_underlying = None
 	_name = None
 	_display_as_row = False
-	_wild = False  # Flag for name changes (used by PyTable column tracking)
+	_wild = False  # Flag for name changes (used by Table column tracking)
 	
 	# Fingerprint constants for O(1) change detection
 	_FP_P = (1 << 61) - 1  # Mersenne prime (2^61 - 1)
@@ -89,24 +89,24 @@ class PyVector():
 
 	def __new__(cls, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		"""
-		Decide what type of PyVector to create based on contents.
+		Decide what type of Vector to create based on contents.
 		"""
 		# If 'initial' is an iterator/generator (consumable), we must materialize it ONCE here.
 		# Otherwise, infer_dtype(initial) consumes it, leaving nothing for __init__.
 		_precomputed_data = None
 		
-		# Check if iterable but not a reusable container (list/tuple/PyVector)
+		# Check if iterable but not a reusable container (list/tuple/Vector)
 		# We check specifically for lack of __len__ as a proxy for "is this a generator?"
-		if hasattr(initial, '__iter__') and not isinstance(initial, (list, tuple, PyVector)):
+		if hasattr(initial, '__iter__') and not isinstance(initial, (list, tuple, Vector)):
 			initial = tuple(initial)
 			_precomputed_data = initial
 
-		# Check if we're creating a PyTable (all elements are vectors of same length)
-		if initial and all(isinstance(x, PyVector) for x in initial):
+		# Check if we're creating a Table (all elements are vectors of same length)
+		if initial and all(isinstance(x, Vector) for x in initial):
 			if len({len(x) for x in initial}) == 1:
-				from .table import PyTable
-				return PyTable(initial=initial, dtype=dtype, name=name, as_row=as_row)
-			warnings.warn('Passing vectors of different length will not produce a PyTable.')
+				from .table import Table
+				return Table(initial=initial, dtype=dtype, name=name, as_row=as_row)
+			warnings.warn('Passing vectors of different length will not produce a Table.')
 		
 		# Convert Python types to DataType if needed
 		if dtype is not None and not isinstance(dtype, DataType):
@@ -121,16 +121,16 @@ class PyVector():
 		target_class = cls
 		if dtype is not None:
 			if dtype.kind is str:
-				target_class = _PyString
+				target_class = _String
 			elif dtype.kind is int:
-				target_class = _PyInt
+				target_class = _Int
 			elif dtype.kind is float:
-				target_class = _PyFloat
+				target_class = _Float
 			elif dtype.kind is date:
-				target_class = _PyDate
+				target_class = _Date
 		
 		# Create instance using object.__new__ (bypasses __new__ dispatch)
-		instance = super(PyVector, target_class).__new__(target_class)
+		instance = super(Vector, target_class).__new__(target_class)
 		
 		# Stash dtype on instance
 		instance._dtype = dtype
@@ -144,7 +144,7 @@ class PyVector():
 
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		"""
-		Initialize a new PyVector instance.
+		Initialize a new Vector instance.
 		"""
 		self._name = None
 		if name is not None:
@@ -152,7 +152,7 @@ class PyVector():
 		self._display_as_row = as_row
 		self._wild = True
 
-		# We check self.__dict__ directly to avoid triggering PyTable.__getattr__
+		# We check self.__dict__ directly to avoid triggering Table.__getattr__
 		# which would crash because the table isn't initialized yet.
 		if '_precomputed_data' in self.__dict__:
 			self._underlying = self._precomputed_data
@@ -181,8 +181,8 @@ class PyVector():
 
 	@staticmethod
 	def _hash_element(x: Any) -> int:
-		P = PyVector._FP_P
-		B = PyVector._FP_B
+		P = Vector._FP_P
+		B = Vector._FP_B
 
 		if x is None:
 			return 0x9E3779B97F4A7C15
@@ -197,12 +197,12 @@ class PyVector():
 
 		if isinstance(x, set):
 			rep = _safe_sortable_list(list(x))
-			return PyVector._hash_element(tuple(rep))
+			return Vector._hash_element(tuple(rep))
 
 		if isinstance(x, (list, tuple)):
 			h = 0
 			for elem in x:
-				h = (h * B + PyVector._hash_element(elem)) % P
+				h = (h * B + Vector._hash_element(elem)) % P
 			return h
 
 		if _is_hashable(x):
@@ -260,7 +260,7 @@ class PyVector():
 		# Preserve name if not explicitly overridden
 		# Use sentinel value (...) to distinguish between name=None (clear) and not passing name (preserve)
 		use_name = self._name if name is ... else name
-		return PyVector(list(new_values or self._underlying),
+		return Vector(list(new_values or self._underlying),
 			dtype = self._dtype,
 			name = use_name,
 			as_row = self._display_as_row)
@@ -269,15 +269,15 @@ class PyVector():
 		"""
 		Convert this vector to object dtype, allowing mixed types.
 		
-		Returns a new PyVector with dtype=object containing the same values.
+		Returns a new Vector with dtype=object containing the same values.
 		Useful when you need to assign values of different types to a vector.
 		
 		Example:
-			a = PyVector([1, 2, 3, 4])   # int vector
+			a = Vector([1, 2, 3, 4])   # int vector
 			a = a.to_object()            # now object vector
 			a[2] = "ryan"                # allowed - can mix types
 		"""
-		return PyVector(list(self._underlying), dtype=object, name=self._name, as_row=self._display_as_row)
+		return Vector(list(self._underlying), dtype=object, name=self._name, as_row=self._display_as_row)
 
 	def rename(self, new_name):
 		"""Rename this vector (returns self for chaining)"""
@@ -294,7 +294,7 @@ class PyVector():
 
 	def cast(self, target_type):
 		"""
-		Convert each element to target_type, recursively if the element is a PyVector.
+		Convert each element to target_type, recursively if the element is a Vector.
 		Preserves None values and infers nullable dtype.
 		"""
 		py_target_type = target_type  # logical type for dtype / error messages
@@ -322,7 +322,7 @@ class PyVector():
 				continue
 
 			try:
-				if isinstance(elem, PyVector):
+				if isinstance(elem, Vector):
 					out.append(elem.cast(target_type))
 				else:
 					out.append(caster(elem))
@@ -339,7 +339,7 @@ class PyVector():
 			# user gave a weird callable as target_type, infer from result
 			new_dtype = infer_dtype(out)
 
-		return PyVector(tuple(out), dtype=new_dtype, name=self._name, as_row=self._display_as_row)
+		return Vector(tuple(out), dtype=new_dtype, name=self._name, as_row=self._display_as_row)
 
 	def fillna(self, value):
 		dtype = self.schema()
@@ -357,13 +357,13 @@ class PyVector():
 					result._promote(required_dtype.kind)
 					# Now fill with the value on the promoted vector
 					out = tuple(value if x is None else x for x in result._underlying)
-					return PyVector(
+					return Vector(
 						out,
 						dtype=DataType(required_dtype.kind, nullable=False),
 						name=self._name,
 						as_row=self._display_as_row
 					)
-				except PyVectorTypeError:
+				except JibTypeError:
 					raise ValueError(
 						f"fillna: value {value!r} (type {type(value).__name__}) "
 						f"cannot be used with {dtype.kind.__name__} vector. "
@@ -383,7 +383,7 @@ class PyVector():
 		else:
 			new_dtype = dtype.with_nullable(nullable=new_nullable)
 
-		return PyVector(
+		return Vector(
 			out,
 			dtype=new_dtype,
 			name=self._name,
@@ -396,16 +396,16 @@ class PyVector():
 		
 		Returns
 		-------
-		PyVector
+		Vector
 			New vector with Nones removed
 		
 		Examples
 		--------
-		>>> v = PyVector([1, None, 3, None, 5])
+		>>> v = Vector([1, None, 3, None, 5])
 		>>> v.dropna()
-		PyVector([1, 3, 5])
+		Vector([1, 3, 5])
 		"""
-		return PyVector(tuple(elem for elem in self._underlying if elem is not None), dtype=self._dtype.with_nullable(False))
+		return Vector(tuple(elem for elem in self._underlying if elem is not None), dtype=self._dtype.with_nullable(False))
 
 	def isna(self):
 		"""
@@ -413,16 +413,16 @@ class PyVector():
 		
 		Returns
 		-------
-		PyVector
+		Vector
 			Boolean vector, True where value is None
 		
 		Examples
 		--------
-		>>> v = PyVector([1, None, 3])
+		>>> v = Vector([1, None, 3])
 		>>> v.isna()
-		PyVector([False, True, False])
+		Vector([False, True, False])
 		"""
-		return PyVector(tuple(elem is None for elem in self._underlying), dtype=DataType(bool))
+		return Vector(tuple(elem is None for elem in self._underlying), dtype=DataType(bool))
 
 	def isinstance(self, types):
 		"""
@@ -435,20 +435,20 @@ class PyVector():
 		
 		Returns
 		-------
-		PyVector
+		Vector
 			Boolean vector, True where element matches type(s)
 		
 		Examples
 		--------
-		>>> v = PyVector([1, "hello", 3.14, None])
+		>>> v = Vector([1, "hello", 3.14, None])
 		>>> v.isinstance(int)
-		PyVector([True, False, False, False])
+		Vector([True, False, False, False])
 		>>> v.isinstance((int, float))
-		PyVector([True, False, True, False])
+		Vector([True, False, True, False])
 		>>> v.isinstance(type(None))
-		PyVector([False, False, False, True])
+		Vector([False, False, False, True])
 		"""
-		return PyVector(
+		return Vector(
 			tuple(b_isinstance(elem, types) for elem in self._underlying),
 			dtype=DataType(bool)
 		)
@@ -476,9 +476,9 @@ class PyVector():
 
 	def __getitem__(self, key):
 		""" Get item(s) from self. Behavior varies by input type:
-		The following return a PyVector:
-			# PyVector of bool: Logical indexing (masking). Get all items where the boolean is True
-			# List where every element is a bool. See PyVector of bool
+		The following return a Vector:
+			# Vector of bool: Logical indexing (masking). Get all items where the boolean is True
+			# List where every element is a bool. See Vector of bool
 			# Slice: return the array elements of the slice.
 
 		Special: Indexing a single index returns a value
@@ -490,13 +490,13 @@ class PyVector():
 
 		if isinstance(key, tuple):
 			if len(key) != len(self.shape):
-				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
+				raise JibKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
 			if len(key) == 1:
 				return self[key[0]]
 			return self._underlying[key[-1]][key[:-1]]
 
 		key = self._check_duplicate(key)
-		if isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable:
+		if isinstance(key, Vector) and key.schema().kind == bool and not key.schema().nullable:
 			if len(self) != len(key):
 				raise ValueError(f"Boolean mask length mismatch: {len(self)} != {len(key)}")
 			return self.copy((x for x, y in zip(self, key, strict=True) if y), name=self._name)
@@ -508,7 +508,7 @@ class PyVector():
 			return self.copy(self._underlying[key], name=self._name)
 
 		# NOT RECOMMENDED
-		if isinstance(key, PyVector) and key.schema().kind == int and not key.schema().nullable:
+		if isinstance(key, Vector) and key.schema().kind == int and not key.schema().nullable:
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors; prefer slices or boolean masks')
 			return self.copy((self[x] for x in key), name=self._name)
@@ -518,12 +518,12 @@ class PyVector():
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors')
 			return self.copy((self[x] for x in key), name=self._name)
-		raise PyVectorTypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
+		raise JibTypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
 
 
 	def __setitem__(self, key, value):
 		"""
-		Optimized in-place assignment for PyVector with:
+		Optimized in-place assignment for Vector with:
 		- boolean masks
 		- slices
 		- integer indices
@@ -560,14 +560,14 @@ class PyVector():
 		# CASE 1 — Boolean mask (fast-path)
 		# =====================================================================
 		if (
-			isinstance(key, PyVector)
+			isinstance(key, Vector)
 			and key.schema().kind == bool
 			and not key.schema().nullable
 		) or (
 			isinstance(key, list) and all(isinstance(e, bool) for e in key)
 		):
 			if len(key) != n:
-				raise PyVectorValueError("Boolean mask length must match vector length.")
+				raise JibValueError("Boolean mask length must match vector length.")
 
 			# Precompute true indices (much faster than branch-per-element)
 			true_indices = [i for i, flag in enumerate(key) if flag]
@@ -575,7 +575,7 @@ class PyVector():
 
 			if is_seq_val:
 				if tcount != len(value):
-					raise PyVectorValueError(
+					raise JibValueError(
 						"Iterable length must match number of True mask elements."
 					)
 				for idx, v in zip(true_indices, value):
@@ -593,7 +593,7 @@ class PyVector():
 
 			if is_seq_val:
 				if slice_len != len(value):
-					raise PyVectorValueError("Slice length and value length must match.")
+					raise JibValueError("Slice length and value length must match.")
 				values_to_assign = value
 			else:
 				# repeat the scalar
@@ -612,36 +612,36 @@ class PyVector():
 			if key < 0:
 				key += n
 			if not (0 <= key < n):
-				raise PyVectorIndexError(
+				raise JibIndexError(
 					f"Index {key} out of range for vector length {n}"
 				)
 			append_update(key, value)
 
 		# =====================================================================
-		# CASE 4 — PyVector of integer indices
+		# CASE 4 — Vector of integer indices
 		# =====================================================================
 		elif (
-			isinstance(key, PyVector)
+			isinstance(key, Vector)
 			and key.schema().kind == int
 			and not key.schema().nullable
 		):
 			if is_seq_val:
 				if len(key) != len(value):
-					raise PyVectorValueError(
+					raise JibValueError(
 						"Index-vector length must match value length."
 					)
 				for idx, val in zip(key, value):
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise PyVectorIndexError(f"Index {idx} out of range.")
+						raise JibIndexError(f"Index {idx} out of range.")
 					append_update(idx, val)
 			else:
 				for idx in key:
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise PyVectorIndexError(f"Index {idx} out of range.")
+						raise JibIndexError(f"Index {idx} out of range.")
 					append_update(idx, value)
 
 		# =====================================================================
@@ -653,23 +653,23 @@ class PyVector():
 		):
 			if is_seq_val:
 				if len(key) != len(value):
-					raise PyVectorValueError("Index list must match value length.")
+					raise JibValueError("Index list must match value length.")
 				for idx, val in zip(key, value):
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise PyVectorIndexError(f"Index {idx} out of range.")
+						raise JibIndexError(f"Index {idx} out of range.")
 					append_update(idx, val)
 			else:
 				for idx in key:
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise PyVectorIndexError(f"Index {idx} out of range.")
+						raise JibIndexError(f"Index {idx} out of range.")
 					append_update(idx, value)
 
 		else:
-			raise PyVectorTypeError(
+			raise JibTypeError(
 				f"Invalid key type: {type(key)}. Must be boolean mask, slice, int, "
 				"integer vector, or list/tuple of ints."
 			)
@@ -695,8 +695,8 @@ class PyVector():
 					try:
 						self._promote(required_dtype.kind)
 						underlying = self._underlying
-					except PyVectorTypeError:
-						raise PyVectorTypeError(
+					except JibTypeError:
+						raise JibTypeError(
 							f"Cannot set {required_dtype.kind.__name__} in "
 							f"{self._dtype.kind.__name__} vector. "
 							f"Promotion not supported."
@@ -742,25 +742,25 @@ class PyVector():
 		
 		# CASE B: Other is 2D (Table on Right)
 		# v == T -> [v==C1, v==C2, ...]
-		if isinstance(other, PyVector) and other.ndims() == 2:
+		if isinstance(other, Vector) and other.ndims() == 2:
 			return other.copy(tuple(
 				# recursive call: self == Column
 				self._elementwise_compare(col, op) 
 				for col in other.cols()
 			))
 		
-		if isinstance(other, PyVector):
+		if isinstance(other, Vector):
 			# Raise mismatched lengths
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
-			return PyVector(result_values, dtype=DataType(bool, nullable=False))
+			return Vector(result_values, dtype=DataType(bool, nullable=False))
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
-			return PyVector(result_values, dtype=DataType(bool, nullable=False))
+			return Vector(result_values, dtype=DataType(bool, nullable=False))
 		# Scalar comparison
 		if other is None and op in (operator.eq, operator.ne):
 			warnings.warn(
@@ -769,7 +769,7 @@ class PyVector():
 				stacklevel=2
 			)
 		result_values = tuple(False if x is None else bool(op(x, other)) for x in self)
-		return PyVector(result_values, dtype=DataType(bool, nullable=False))	# Now, we can redefine the comparison methods using the helper function
+		return Vector(result_values, dtype=DataType(bool, nullable=False))	# Now, we can redefine the comparison methods using the helper function
 	
 	def __eq__(self, other):
 		return self._elementwise_compare(other, operator.eq)
@@ -824,14 +824,14 @@ class PyVector():
 		
 		# CASE B: Other is 2D (Table on Right)
 		# v + T -> [v+C1, v+C2, ...]
-		if isinstance(other, PyVector) and other.ndims() == 2:
+		if isinstance(other, Vector) and other.ndims() == 2:
 			return other.copy(tuple(
 				# recursive call: self + Column
 				self._elementwise_operation(col, op_func, op_name, op_symbol) 
 				for col in other.cols()
 			))
 		
-		if isinstance(other, PyVector):
+		if isinstance(other, Vector):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			try:
@@ -839,9 +839,9 @@ class PyVector():
 			except TypeError:
 				# Incompatible types - fall back to object dtype with raw tuples
 				result_values = tuple((x, y) for x, y in zip(self, other, strict=True))
-				return PyVector(result_values, dtype=DataType(object), name=None, as_row=self._display_as_row)
+				return Vector(result_values, dtype=DataType(object), name=None, as_row=self._display_as_row)
 			result_dtype = infer_dtype(result_values)
-			return PyVector(result_values,
+			return Vector(result_values,
 							dtype=result_dtype,
 							name=None,
 							as_row=self._display_as_row)
@@ -854,9 +854,9 @@ class PyVector():
 			except TypeError:
 				# Incompatible types - fall back to object dtype with raw tuples
 				result_values = tuple((x, y) for x, y in zip(self, other, strict=True))
-				return PyVector(result_values, dtype=DataType(object), name=None, as_row=self._display_as_row)
+				return Vector(result_values, dtype=DataType(object), name=None, as_row=self._display_as_row)
 			result_dtype = infer_dtype(result_values)
-			return PyVector(result_values,
+			return Vector(result_values,
 				dtype=result_dtype,
 				name=None,
 				as_row=self._display_as_row
@@ -865,16 +865,16 @@ class PyVector():
 			result_values = tuple(None if x is None else op_func(x, other) for x in self._underlying)
 			# Infer dtype from result (e.g., int * 0.1 = float)
 			result_dtype = infer_dtype(result_values)
-			return PyVector(result_values,
+			return Vector(result_values,
 							dtype=result_dtype,
 							name=None,
 							as_row=self._display_as_row)
 		except TypeError as e:
-			raise PyVectorTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.kind.__name__}' and '{type(other).__name__}'.")
+			raise JibTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.kind.__name__}' and '{type(other).__name__}'.")
 
 	def _unary_operation(self, op_func, op_name: str):
 		"""Helper function to handle unary operations on each element."""
-		return PyVector(
+		return Vector(
 			tuple(op_func(x) for x in self),
 			dtype=self._dtype,
 			name=self._name,
@@ -902,7 +902,7 @@ class PyVector():
 	def __invert__(self):
 		# For boolean vectors, use logical NOT instead of bitwise NOT
 		if self._dtype and self._dtype.kind is bool:
-			return PyVector(
+			return Vector(
 				tuple(not x for x in self),
 				dtype=self._dtype,
 				name=self._name,
@@ -926,8 +926,8 @@ class PyVector():
 		"""Reverse addition: other + self (handles strings specially)"""
 		other = self._check_duplicate(other)
 		
-		# PyVector + PyVector
-		if isinstance(other, PyVector):
+		# Vector + Vector
+		if isinstance(other, Vector):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			vals = []
@@ -936,9 +936,9 @@ class PyVector():
 					vals.append(None)
 				else:
 					vals.append(x + y)
-			return PyVector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
+			return Vector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
 		
-		# Scalar + PyVector
+		# Scalar + Vector
 		if not hasattr(other, "__iter__") or isinstance(other, (str, bytes, bytearray)):
 			vals = []
 			for x in self:
@@ -946,9 +946,9 @@ class PyVector():
 					vals.append(None)
 				else:
 					vals.append(other + x)
-			return PyVector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
+			return Vector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
 		
-		# Iterable + PyVector
+		# Iterable + Vector
 		if hasattr(other, "__iter__"):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
@@ -958,9 +958,9 @@ class PyVector():
 					vals.append(None)
 				else:
 					vals.append(x + y)
-			return PyVector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
+			return Vector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
 		
-		raise PyVectorTypeError(f"Unsupported operand type: {type(other).__name__}")
+		raise JibTypeError(f"Unsupported operand type: {type(other).__name__}")
 
 	def __rmul__(self, other):
 		return self.__mul__(other)
@@ -990,7 +990,7 @@ class PyVector():
 			# Python type like int, float
 			target_kind = new_dtype
 		else:
-			raise PyVectorTypeError(f"new_dtype must be a DataType instance or Python type, not {type(new_dtype).__name__}")
+			raise JibTypeError(f"new_dtype must be a DataType instance or Python type, not {type(new_dtype).__name__}")
 			
 		# Already the target type
 		if self._dtype.kind is target_kind:
@@ -1020,7 +1020,7 @@ class PyVector():
 			self._dtype = DataType(datetime, nullable=self._dtype.nullable)
 		else:
 			# For backwards compat, raise error if trying invalid promotion
-			raise PyVectorTypeError(f'Cannot convert PyVector from {self._dtype.kind.__name__} to {target_kind.__name__}.')
+			raise JibTypeError(f'Cannot convert Vector from {self._dtype.kind.__name__} to {target_kind.__name__}.')
 		return
 
 	def ndims(self):
@@ -1094,7 +1094,7 @@ class PyVector():
 				if x not in seen:
 					seen.add(x)
 					out.append(x)
-			return PyVector(out)
+			return Vector(out)
 		except TypeError:
 			pass   # fall through → slow path
 
@@ -1103,7 +1103,7 @@ class PyVector():
 		for x in self._underlying:
 			if not any(x == y for y in out):
 				out.append(x)
-		return PyVector(out)
+		return Vector(out)
 
 
 	def argsort(self):
@@ -1129,11 +1129,11 @@ class PyVector():
 				# TypeError: item not subscriptable
 				results.append(default)
 		
-		return PyVector(results)
+		return Vector(results)
 
 	def sort_values(self, reverse=False, na_last=True):
 		"""
-		Stable sort. Returns a new PyVector.
+		Stable sort. Returns a new Vector.
 
 		Parameters
 		----------
@@ -1145,7 +1145,7 @@ class PyVector():
 		
 		Returns
 		-------
-		PyVector
+		Vector
 			Sorted vector with same dtype
 		"""
 		# Build key for each element
@@ -1157,7 +1157,7 @@ class PyVector():
 		new_values = tuple(sorted(self._underlying, key=key_fn, reverse=reverse))
 
 		# dtype DOES NOT change — preserving nullability and kind
-		new_vector = PyVector(new_values, dtype=self._dtype, name=self._name)
+		new_vector = Vector(new_values, dtype=self._dtype, name=self._name)
 
 		return new_vector
 
@@ -1165,7 +1165,7 @@ class PyVector():
 	def _check_duplicate(self, other):
 		if id(self) == id(other):
 			# If the object references match, we need to copy other
-			# return PyVector((x for x in other), other._default, other._dtype, other._typesafe)
+			# return Vector((x for x in other), other._default, other._dtype, other._typesafe)
 			return deepcopy(other)
 		return other
 
@@ -1177,7 +1177,7 @@ class PyVector():
 			return True
 		if dtype_kind == type(other):
 			return True
-		if dtype_kind == PyVector:
+		if dtype_kind == Vector:
 			return True
 		if not (not self._dtype.nullable or hasattr(other, '__iter__')):
 			return True
@@ -1191,7 +1191,7 @@ class PyVector():
 	def __matmul__(self, other):
 		"""
 		Universal Matrix Multiplication / Dot Product.
-		Logic is centralized here to keep PyTable lightweight.
+		Logic is centralized here to keep Table lightweight.
 		
 		Implements:
 		1. Vector @ Vector -> Scalar (Dot Product)
@@ -1206,23 +1206,23 @@ class PyVector():
 			# 1a. Matrix @ Matrix
 			# Recursive: This Matrix @ Each Column of Other
 			if hasattr(other, 'cols') and other.ndims() == 2:
-				# Returns a tuple of vectors, wrapped in a new PyVector (which becomes PyTable)
+				# Returns a tuple of vectors, wrapped in a new Vector (which becomes Table)
 				return self.copy(tuple(self @ col for col in other.cols())).rename(None)
 
 			# 1b. Matrix @ Vector
 			# The "Trick": Linear Combination of Columns
 			# Result = sum(Column_i * Scalar_i)
-			if isinstance(other, PyVector):
+			if isinstance(other, Vector):
 				cols = self.cols() 
 				
 				if len(cols) != len(other):
-						raise PyVectorValueError(f"Dim mismatch: Matrix cols {len(cols)} != Vector len {len(other)}")
+						raise JibValueError(f"Dim mismatch: Matrix cols {len(cols)} != Vector len {len(other)}")
 				
 				# OPTIMIZATION: Access other._underlying directly to avoid index overhead in loop
 				scalars = other._underlying
 				
 				if not cols:
-					return PyVector([])
+					return Vector([])
 
 				# Start accumulator with first term (Col_0 * Scalar_0)
 				acc = cols[0] * scalars[0]
@@ -1238,7 +1238,7 @@ class PyVector():
 		# 2a. Vector @ Matrix
 		# Broadcast self against columns of matrix
 		if hasattr(other, 'cols') and other.ndims() == 2:
-				return PyVector(tuple(self @ col for col in other.cols()))
+				return Vector(tuple(self @ col for col in other.cols()))
 
 		# 2b. Vector @ Vector (Dot Product)
 		# Standard sum of products
@@ -1249,11 +1249,11 @@ class PyVector():
 	def __rmatmul__(self, other):
 		other = self._check_duplicate(other)
 		if len(self.shape) > 1:
-			return PyVector(tuple(x @ other for x in self.cols()))
+			return Vector(tuple(x @ other for x in self.cols()))
 		if len(self) != len(other):
 			raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
-		raise PyVectorTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		raise JibTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
 
 	def __bool__(self):
@@ -1264,7 +1264,7 @@ class PyVector():
 		Use len(vec) > 0 to check for emptiness.
 		"""
 		raise TypeError(
-			"PyVector cannot be used in a boolean context (e.g., 'if vector:'). "
+			"Vector cannot be used in a boolean context (e.g., 'if vector:'). "
 			"Use .any() or .all() for element-wise checks, or len(vector) > 0 to check for emptiness."
 		)
 
@@ -1275,15 +1275,15 @@ class PyVector():
 		if self._dtype.kind in (bool, int) and isinstance(other, int):
 			warnings.warn(f"The behavior of >> and << have been overridden for concatenation. Use .bitshift() to shift bits.")
 
-		if isinstance(other, PyVector):
+		if isinstance(other, Vector):
 			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
-			return PyVector(self._underlying + other._underlying,
+				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
+			return Vector(self._underlying + other._underlying,
 				dtype=self._dtype)
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
-			return PyVector(self._underlying + tuple(other),
+			return Vector(self._underlying + tuple(other),
 				dtype=self._dtype)
-		return PyVector(self._underlying + (other,),
+		return Vector(self._underlying + (other,),
 				dtype=self._dtype)
 
 
@@ -1293,53 +1293,53 @@ class PyVector():
 		if self._dtype.kind in (bool, int) and isinstance(other, int):
 			warnings.warn(f"The behavior of >> and << have been overridden for concatenation. Use .bitshift() to shift bits.")
 
-		if type(other).__name__ == 'PyTable':
+		if type(other).__name__ == 'Table':
 			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
-			return PyVector((self,) + other.cols(),
+				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
+			return Vector((self,) + other.cols(),
 				dtype=self._dtype)
-		if isinstance(other, PyVector):
+		if isinstance(other, Vector):
 			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
-			return PyVector((self,) + (other,),
+				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
+			return Vector((self,) + (other,),
 				dtype=self._dtype)
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
-			return PyVector([self, PyVector(tuple(x for x in other))],
+			return Vector([self, Vector(tuple(x for x in other))],
 				dtype=self._dtype)
 		elif not self:
-			return PyVector((other,),
+			return Vector((other,),
 				dtype=self._dtype)
-		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
+		raise JibTypeError("Cannot add a column of constant values. Try using Vector.new(element, length).")
 
 	def __rlshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append)
-		Handles: other << self (where other is not a PyVector)
+		Handles: other << self (where other is not a Vector)
 		"""
-		# Convert other to PyVector and concatenate with self
+		# Convert other to Vector and concatenate with self
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
-			return PyVector(tuple(other) + self._underlying,
+			return Vector(tuple(other) + self._underlying,
 				None,  # other doesn't have a default element
 				None,
 				False)
 		# Scalar case: [other] + self
-		return PyVector((other,) + self._underlying,
+		return Vector((other,) + self._underlying,
 			None,
 			None,
 			False)
 
 	def __rrshift__(self, other):
 		""" The >> operator behavior has been overridden to add columns
-		Handles: other >> self (where other is not a PyVector)
+		Handles: other >> self (where other is not a Vector)
 		Creates a table with other as first column(s) and self as additional column(s)
 		"""
-		# Convert other to PyVector and combine column-wise
+		# Convert other to Vector and combine column-wise
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
-			return PyVector((PyVector(tuple(other)), self),
+			return Vector((Vector(tuple(other)), self),
 				None,
 				None,
 				False)
 		# Scalar case: create a single-element vector for other
-		return PyVector((PyVector((other,)), self),
+		return Vector((Vector((other,)), self),
 			None,
 			None,
 			False)
@@ -1364,17 +1364,17 @@ class PyVector():
 		"""Proxy attribute access to underlying dtype.
 		
 		Distinguishes between properties (like date.year) and methods (like str.replace):
-		- Properties are evaluated immediately and return a PyVector
+		- Properties are evaluated immediately and return a Vector
 		- Methods return a MethodProxy that waits for () to be called
 		"""
 		# 1. If we are untyped (object), don't guess. Explicit > Implicit.
 		# Use __dict__ to avoid recursive __getattr__ calls
 		schema = object.__getattribute__(self, 'schema')()
 		if schema is None:
-			raise AttributeError(f"Empty PyVector has no attribute '{name}'")
+			raise AttributeError(f"Empty Vector has no attribute '{name}'")
 		dtype_kind = schema.kind
 		if dtype_kind is object:
-			raise AttributeError(f"PyVector[object] has no attribute '{name}'")
+			raise AttributeError(f"Vector[object] has no attribute '{name}'")
 		
 		# 2. Inspect the class definition of the type we are holding
 		# getattr(cls, name) returns the actual class member (method, property, slot)
@@ -1391,317 +1391,317 @@ class PyVector():
 			return MethodProxy(self, name)
 		else:
 			# property (non-callable attribute)
-			return PyVector(tuple(
+			return Vector(tuple(
 				getattr(x, name) if x is not None else None
 				for x in self._underlying
 			))
 
 
-class _PyFloat(PyVector):
+class _Float(Vector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 
-class _PyInt(PyVector):
+class _Int(Vector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 
-class _PyString(PyVector):
+class _String(Vector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 	def capitalize(self):
 		""" Call the internal capitalize method on string """
-		return PyVector(tuple((s.capitalize() if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.capitalize() if s is not None else None) for s in self._underlying))
 
 	def casefold(self):
 		""" Call the internal casefold method on string """
-		return PyVector(tuple((s.casefold() if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.casefold() if s is not None else None) for s in self._underlying))
 
 	def center(self, *args, **kwargs):
 		""" Call the internal center method on string """
-		return PyVector(tuple((s.center(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.center(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def count(self, *args, **kwargs):
 		""" Call the internal count method on string """
-		return PyVector(tuple((s.count(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.count(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def encode(self, *args, **kwargs):
 		""" Call the internal encode method on string """
-		return PyVector(tuple((s.encode(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.encode(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def endswith(self, *args, **kwargs):
 		""" Call the internal endswith method on string """
-		return PyVector(tuple((s.endswith(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.endswith(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def expandtabs(self, *args, **kwargs):
 		""" Call the internal expandtabs method on string """
-		return PyVector(tuple((s.expandtabs(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.expandtabs(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def find(self, *args, **kwargs):
 		""" Call the internal find method on string """
-		return PyVector(tuple((s.find(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.find(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def format(self, *args, **kwargs):
 		""" Call the internal format method on string """
-		return PyVector(tuple((s.format(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.format(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def format_map(self, *args, **kwargs):
 		""" Call the internal format_map method on string """
-		return PyVector(tuple((s.format_map(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.format_map(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def index(self, *args, **kwargs):
 		""" Call the internal index method on string """
-		return PyVector(tuple((s.index(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.index(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isalnum(self, *args, **kwargs):
 		""" Call the internal isalnum method on string """
-		return PyVector(tuple((s.isalnum(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isalnum(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isalpha(self, *args, **kwargs):
 		""" Call the internal isalpha method on string """
-		return PyVector(tuple((s.isalpha(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isalpha(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isascii(self, *args, **kwargs):
 		""" Call the internal isascii method on string """
-		return PyVector(tuple((s.isascii(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isascii(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isdecimal(self, *args, **kwargs):
 		""" Call the internal isdecimal method on string """
-		return PyVector(tuple((s.isdecimal(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isdecimal(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isdigit(self, *args, **kwargs):
 		""" Call the internal isdigit method on string """
-		return PyVector(tuple((s.isdigit(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isdigit(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isidentifier(self, *args, **kwargs):
 		""" Call the internal isidentifier method on string """
-		return PyVector(tuple((s.isidentifier(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isidentifier(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def islower(self, *args, **kwargs):
 		""" Call the internal islower method on string """
-		return PyVector(tuple((s.islower(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.islower(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isnumeric(self, *args, **kwargs):
 		""" Call the internal isnumeric method on string """
-		return PyVector(tuple((s.isnumeric(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isnumeric(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isprintable(self, *args, **kwargs):
 		""" Call the internal isprintable method on string """
-		return PyVector(tuple((s.isprintable(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isprintable(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isspace(self, *args, **kwargs):
 		""" Call the internal isspace method on string """
-		return PyVector(tuple((s.isspace(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isspace(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def istitle(self, *args, **kwargs):
 		""" Call the internal istitle method on string """
-		return PyVector(tuple((s.istitle(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.istitle(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isupper(self, *args, **kwargs):
 		""" Call the internal isupper method on string """
-		return PyVector(tuple((s.isupper(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isupper(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def join(self, *args, **kwargs):
 		""" Call the internal join method on string """
-		return PyVector(tuple((s.join(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.join(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def ljust(self, *args, **kwargs):
 		""" Call the internal ljust method on string """
-		return PyVector(tuple((s.ljust(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.ljust(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def lower(self, *args, **kwargs):
 		""" Call the internal lower method on string """
-		return PyVector(tuple((s.lower(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.lower(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def lstrip(self, *args, **kwargs):
 		""" Call the internal lstrip method on string """
-		return PyVector(tuple((s.lstrip(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.lstrip(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def maketrans(self, *args, **kwargs):
 		""" Call the internal maketrans method on string """
-		return PyVector(tuple((s.maketrans(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.maketrans(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def partition(self, *args, **kwargs):
 		""" Call the internal partition method on string """
-		return PyVector(tuple((s.partition(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.partition(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def removeprefix(self, *args, **kwargs):
 		""" Call the internal removeprefix method on string """
-		return PyVector(tuple((s.removeprefix(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.removeprefix(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def removesuffix(self, *args, **kwargs):
 		""" Call the internal removesuffix method on string """
-		return PyVector(tuple((s.removesuffix(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.removesuffix(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def replace(self, *args, **kwargs):
 		""" Call the internal replace method on string """
-		return PyVector(tuple((s.replace(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.replace(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rfind(self, *args, **kwargs):
 		""" Call the internal rfind method on string """
-		return PyVector(tuple((s.rfind(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rfind(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rindex(self, *args, **kwargs):
 		""" Call the internal rindex method on string """
-		return PyVector(tuple((s.rindex(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rindex(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rjust(self, *args, **kwargs):
 		""" Call the internal rjust method on string """
-		return PyVector(tuple((s.rjust(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rjust(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rpartition(self, *args, **kwargs):
 		""" Call the internal rpartition method on string """
-		return PyVector(tuple((s.rpartition(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rpartition(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rsplit(self, *args, **kwargs):
 		""" Call the internal rsplit method on string """
-		return PyVector(tuple((s.rsplit(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rsplit(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def rstrip(self, *args, **kwargs):
 		""" Call the internal rstrip method on string """
-		return PyVector(tuple((s.rstrip(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rstrip(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def split(self, *args, **kwargs):
 		""" Call the internal split method on string """
-		return PyVector(tuple((s.split(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.split(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def splitlines(self, *args, **kwargs):
 		""" Call the internal splitlines method on string """
-		return PyVector(tuple((s.splitlines(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.splitlines(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def startswith(self, *args, **kwargs):
 		""" Call the internal startswith method on string """
-		return PyVector(tuple((s.startswith(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.startswith(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def strip(self, *args, **kwargs):
 		""" Call the internal strip method on string """
-		return PyVector(tuple((s.strip(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.strip(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def swapcase(self, *args, **kwargs):
 		""" Call the internal swapcase method on string """
-		return PyVector(tuple((s.swapcase(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.swapcase(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def title(self, *args, **kwargs):
 		""" Call the internal title method on string """
-		return PyVector(tuple((s.title(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.title(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def translate(self, *args, **kwargs):
 		""" Call the internal translate method on string """
-		return PyVector(tuple((s.translate(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.translate(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def upper(self, *args, **kwargs):
 		""" Call the internal upper method on string """
-		return PyVector(tuple((s.upper(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.upper(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def zfill(self, *args, **kwargs):
 		""" Call the internal zfill method on string """
-		return PyVector(tuple((s.zfill(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.zfill(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def before(self, sep):
 		"""Return the part of each string before the first occurrence of sep."""
-		return PyVector(tuple((s.partition(sep)[0] if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.partition(sep)[0] if s is not None else None) for s in self._underlying))
 
 	def after(self, sep):
 		"""Return the part of each string after the first occurrence of sep."""
-		return PyVector(tuple((s.partition(sep)[2] if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.partition(sep)[2] if s is not None else None) for s in self._underlying))
 
 	def before_last(self, sep):
 		"""Return the part of each string before the last occurrence of sep."""
-		return PyVector(tuple((s.rpartition(sep)[0] if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rpartition(sep)[0] if s is not None else None) for s in self._underlying))
 
 	def after_last(self, sep):
 		"""Return the part of each string after the last occurrence of sep."""
-		return PyVector(tuple((s.rpartition(sep)[2] if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.rpartition(sep)[2] if s is not None else None) for s in self._underlying))
 
 
-class _PyDate(PyVector):
+class _Date(Vector):
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False, **kwargs):
 		# dtype already set by __new__
 		super().__init__(initial, dtype=dtype, name=name, as_row=as_row)
 
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)
-		if isinstance(other, PyVector):
+		if isinstance(other, Vector):
 			# Raise mismatched lengths
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			if other.schema().kind == str:
-				return PyVector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+				return Vector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 			if other.schema().kind == datetime:
-				return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+				return Vector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 		elif hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
-			# If it's not a PyVector or Constant, don't apply date compare logic
-			return PyVector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
+			# If it's not a Vector or Constant, don't apply date compare logic
+			return Vector(tuple(bool(op(x, y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 		elif isinstance(other, str):
-			return PyVector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), dtype=DataType(bool))
+			return Vector(tuple(bool(op(x, date.fromisoformat(other))) for x in self), dtype=DataType(bool))
 		elif isinstance(other, datetime):
-			return PyVector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), other)) for x in self), dtype=DataType(bool))
+			return Vector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), other)) for x in self), dtype=DataType(bool))
 		# finally, 
 		return super()._elementwise_compare(other, op)
 
 
 	def ctime(self, *args, **kwargs):
-		return PyVector(tuple((s.ctime(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.ctime(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromisocalendar(self, *args, **kwargs):
-		return PyVector(tuple((s.fromisocalendar(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.fromisocalendar(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromisoformat(self, *args, **kwargs):
-		return PyVector(tuple((s.fromisoformat(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.fromisoformat(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromordinal(self, *args, **kwargs):
-		return PyVector(tuple((s.fromordinal(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.fromordinal(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def fromtimestamp(self, *args, **kwargs):
-		return PyVector(tuple((s.fromtimestamp(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.fromtimestamp(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isocalendar(self, *args, **kwargs):
-		return PyVector(tuple((s.isocalendar(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isocalendar(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isoformat(self, *args, **kwargs):
-		return PyVector(tuple((s.isoformat(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isoformat(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def isoweekday(self, *args, **kwargs):
-		return PyVector(tuple((s.isoweekday(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.isoweekday(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def replace(self, *args, **kwargs):
-		return PyVector(tuple((s.replace(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.replace(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def strftime(self, *args, **kwargs):
-		return PyVector(tuple((s.strftime(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.strftime(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def timetuple(self, *args, **kwargs):
-		return PyVector(tuple((s.timetuple(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.timetuple(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def today(self, *args, **kwargs):
-		return PyVector(tuple((s.today(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.today(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def toordinal(self, *args, **kwargs):
-		return PyVector(tuple((s.toordinal(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.toordinal(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def weekday(self, *args, **kwargs):
-		return PyVector(tuple((s.weekday(*args, **kwargs) if s is not None else None) for s in self._underlying))
+		return Vector(tuple((s.weekday(*args, **kwargs) if s is not None else None) for s in self._underlying))
 
 	def __add__(self, other):
 		""" adding integers is adding days """
-		if isinstance(other, PyVector) and other.schema().kind == int:
+		if isinstance(other, Vector) and other.schema().kind == int:
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
-			return PyVector(tuple(
+			return Vector(tuple(
 				(date.fromordinal(s.toordinal() + y) if s is not None and y is not None else None)
 				for s, y in zip(self._underlying, other, strict=True)
 			))
 
 		if isinstance(other, int):
-			return PyVector(tuple((date.fromordinal(s.toordinal() + other) if s is not None else None) for s in self._underlying))
+			return Vector(tuple((date.fromordinal(s.toordinal() + other) if s is not None else None) for s in self._underlying))
 		return super().add(other)
 
 	def eomonth(self):
@@ -1719,4 +1719,8 @@ class _PyDate(PyVector):
 
 			out.append(last)
 
-		return PyVector(tuple(out))
+		return Vector(tuple(out))
+
+
+
+

@@ -1,4 +1,4 @@
-"""CSV reading utilities for PyVector/PyTable."""
+"""CSV reading utilities for Vector/Table."""
 
 import csv
 from typing import TextIO
@@ -6,7 +6,7 @@ from typing import TextIO
 
 def read_csv(file, *, delimiter=',', has_header=True, encoding='utf-8'):
     """
-    Read a CSV file and return a PyTable.
+    Read a CSV file and return a Table.
     
     Parameters
     ----------
@@ -21,7 +21,7 @@ def read_csv(file, *, delimiter=',', has_header=True, encoding='utf-8'):
     
     Returns
     -------
-    PyTable
+    Table
         Table with columns from the CSV file
     
     Examples
@@ -31,8 +31,8 @@ def read_csv(file, *, delimiter=',', has_header=True, encoding='utf-8'):
     >>> with open("data.csv") as f:
     ...     t = read_csv(f)
     """
-    from .table import PyTable
-    from .vector import PyVector
+    from .table import Table
+    from .vector import Vector
     
     # Handle file path vs file object
     if isinstance(file, str):
@@ -44,8 +44,8 @@ def read_csv(file, *, delimiter=',', has_header=True, encoding='utf-8'):
 
 def _read_csv_from_file(file_obj: TextIO, *, delimiter: str, has_header: bool):
     """Read CSV data from an open file object."""
-    from .table import PyTable
-    from .vector import PyVector
+    from .table import Table
+    from .vector import Vector
     
     reader = csv.reader(file_obj, delimiter=delimiter)
     
@@ -53,7 +53,7 @@ def _read_csv_from_file(file_obj: TextIO, *, delimiter: str, has_header: bool):
     all_rows = list(reader)
     
     if not all_rows:
-        return PyTable()
+        return Table()
     
     # Determine header and data rows
     if has_header:
@@ -66,7 +66,7 @@ def _read_csv_from_file(file_obj: TextIO, *, delimiter: str, has_header: bool):
     
     if not rows:
         # Header only, no data
-        return PyTable({col: PyVector() for col in header})
+        return Table({col: Vector() for col in header})
     
     # Transpose rows into columns
     num_cols = len(header)
@@ -82,9 +82,9 @@ def _read_csv_from_file(file_obj: TextIO, *, delimiter: str, has_header: bool):
                 column_data.append(_infer_type(value))
             else:
                 column_data.append(None)
-        columns.append(PyVector(column_data, name=header[col_idx]))
+        columns.append(Vector(column_data, name=header[col_idx]))
     
-    return PyTable(columns)
+    return Table(columns)
 
 
 def _infer_type(value: str):
@@ -112,3 +112,4 @@ def _infer_type(value: str):
     
     # Keep as string
     return value
+

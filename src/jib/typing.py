@@ -1,9 +1,9 @@
 """
-DataType system for PyVector / PyTable.
+DataType system for Vector / Table.
 
 Pure metadata design:
   - DataType describes column semantics (type + nullable flag)
-  - Null masks live on PyVector instances, not in DataType
+  - Null masks live on Vector instances, not in DataType
   - Promotion is functional (immutable DataType instances)
   - Backend-agnostic and stable
 """
@@ -18,7 +18,7 @@ import warnings
 @dataclass(frozen=True)
 class DataType:
     """
-    Describes the semantic type of a PyVector column.
+    Describes the semantic type of a Vector column.
 
     Attributes
     ----------
@@ -295,6 +295,7 @@ def validate_scalar(value: Any, dtype: DataType) -> Any:
     raise TypeError(
         f"Incompatible value {value!r} for column<{dtype.kind.__name__}>"
     )
+
 
 
 

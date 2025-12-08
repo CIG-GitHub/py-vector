@@ -1,28 +1,28 @@
 import warnings
-from .vector import PyVector
+from .vector import Vector
 from .naming import _sanitize_user_name, _uniquify
-from .errors import PyVectorKeyError, PyVectorValueError, PyVectorTypeError
+from .errors import JibKeyError, JibValueError, JibTypeError
 
 
-def _missing_col_error(name, context="PyTable"):
-	return PyVectorKeyError(f"Column '{name}' not found in {context}")
+def _missing_col_error(name, context="Table"):
+	return JibKeyError(f"Column '{name}' not found in {context}")
 
 
-class PyRow(PyVector):
+class Row(Vector):
 	"""
 	The One Row to Rule Them All.
 	
-	It behaves like a PyVector (math, logic, isinstance), but it is a 
+	It behaves like a Vector (math, logic, isinstance), but it is a 
 	zero-copy view into the Table's columns.
 	
 	PERFORMANCE NOTE:
-	We deliberately bypass PyVector.__init__ to avoid O(N) scans, 
+	We deliberately bypass Vector.__init__ to avoid O(N) scans, 
 	fingerprinting, and alias tracking during iteration.
 	"""
 	__slots__ = ('_raw_cols', '_column_map', '_index', '_dtype')
 	
 	def __new__(cls, table, index=0):
-		# Bypass PyVector.__new__ entirely.
+		# Bypass Vector.__new__ entirely.
 		# This prevents the infinite loop of checking "is the input iterable?"
 		return object.__new__(cls)
 
@@ -55,7 +55,7 @@ class PyRow(PyVector):
 				self._dtype = DataType(object, nullable=True)
 
 		# CRITICAL: We DO NOT call super().__init__()
-		# calling PyVector.__init__ would materialize the data and kill performance.
+		# calling Vector.__init__ would materialize the data and kill performance.
 		# We are a "Hollow" Vector.
 
 	def set_index(self, index):
@@ -66,7 +66,7 @@ class PyRow(PyVector):
 	@property
 	def _underlying(self):
 		"""
-		If a PyVector method asks for 'self._underlying', we materialize it on demand.
+		If a Vector method asks for 'self._underlying', we materialize it on demand.
 		This is the "Lazy" part. We don't build the tuple until you do math.
 		"""
 		return tuple(col[self._index] for col in self._raw_cols)
@@ -83,7 +83,7 @@ class PyRow(PyVector):
 			return (0,)
 		
 		# Peek at the first element (using raw access to avoid object creation)
-		# to see if it has dimensions (is a PyVector/PyTable)
+		# to see if it has dimensions (is a Vector/Table)
 		first_val = self._raw_cols[0][self._index]
 		
 		if hasattr(first_val, 'shape'):
@@ -103,7 +103,7 @@ class PyRow(PyVector):
 		if col_idx is not None:
 			return self._raw_cols[col_idx][self._index]
 			
-		# 2. Fall back to PyVector methods (sum, mean, cast, etc.)
+		# 2. Fall back to Vector methods (sum, mean, cast, etc.)
 		return super().__getattr__(attr)
 
 	def __getitem__(self, key):
@@ -127,18 +127,18 @@ class PyRow(PyVector):
 		return len(self._raw_cols)
 
 
-class PyTable(PyVector):
+class Table(Vector):
 	""" Multiple columns of the same length """
 	_length = None
 	
 	def __new__(cls, initial=(), dtype=None, name=None, as_row=False):
-		return super(PyVector, cls).__new__(cls)
+		return super(Vector, cls).__new__(cls)
 
 	def __init__(self, initial=(), dtype=None, name=None, as_row=False):
 		# Handle dict initialization {name: values, ...}
 		if isinstance(initial, dict):
-			# Create PyVectors with names from dict keys
-			initial = [PyVector(values, name=col_name) for col_name, values in initial.items()]
+			# Create Vectors with names from dict keys
+			initial = [Vector(values, name=col_name) for col_name, values in initial.items()]
 		
 		self._length = len(initial[0]) if initial else 0
 		
@@ -153,7 +153,7 @@ class PyTable(PyVector):
 		else:
 			initial = ()
 		
-		# Set _dtype to None explicitly since PyTable bypasses PyVector.__new__
+		# Set _dtype to None explicitly since Table bypasses Vector.__new__
 		self._dtype = None
 		self._column_map = None
 		
@@ -161,7 +161,7 @@ class PyTable(PyVector):
 		super().__init__(initial, dtype=dtype, name=name)
 		
 		# Restore column names after parent init
-		# The parent PyVector.__init__ may have modified self._underlying
+		# The parent Vector.__init__ may have modified self._underlying
 		if original_names:
 			for i, col_name in enumerate(original_names):
 				if i < len(self._underlying):
@@ -173,7 +173,7 @@ class PyTable(PyVector):
 	def __len__(self):
 		if len(self._underlying) == 0:
 			return 0
-		if isinstance(self._underlying[0], PyTable):
+		if isinstance(self._underlying[0], Table):
 			return len(self._underlying)
 		return self._length
 
@@ -226,7 +226,7 @@ class PyTable(PyVector):
 		
 		Examples
 		--------
-		>>> t = PyTable({'x': [1, 2], 'y': [3, 4]})
+		>>> t = Table({'x': [1, 2], 'y': [3, 4]})
 		>>> t.column_names()
 		['x', 'y']
 		"""
@@ -261,8 +261,8 @@ class PyTable(PyVector):
 			col_idx = self._column_map.get(attr) or self._column_map.get(attr.lower())
 			if col_idx is not None:
 				# Replace the column in _underlying
-				if not isinstance(value, PyVector):
-					value = PyVector(value)
+				if not isinstance(value, Vector):
+					value = Vector(value)
 				
 				# Validate length
 				if self._underlying and len(value) != self._length:
@@ -282,7 +282,7 @@ class PyTable(PyVector):
 		
 		# Reject arbitrary attribute setting - only allow column updates
 		raise AttributeError(
-			f"Cannot set attribute '{attr}' on PyTable. "
+			f"Cannot set attribute '{attr}' on Table. "
 			f"Column '{attr}' does not exist. Use >>= to add new columns."
 		)
 
@@ -307,7 +307,7 @@ class PyTable(PyVector):
 		"""
 
 		if len(old_names) != len(new_names):
-			raise PyVectorValueError("old_names and new_names must have the same length")
+			raise JibValueError("old_names and new_names must have the same length")
 
 		# Simulate renames using a temporary list (avoid mid-state partial renames)
 		simulated = [col._name for col in self._underlying]
@@ -338,9 +338,9 @@ class PyTable(PyVector):
 			num_cols = len(self._underlying)
 			rows = []
 			for row_idx in range(num_rows):
-				row = PyVector(tuple(col[row_idx] for col in self._underlying))
+				row = Vector(tuple(col[row_idx] for col in self._underlying))
 				rows.append(row)
-			return PyTable(rows)
+			return Table(rows)
 		return self.copy((tuple(x.T for x in self))) # higher dimensions
 
 	def __getitem__(self, key):
@@ -415,16 +415,16 @@ class PyTable(PyVector):
 
 								if not found:
 									raise _missing_col_error(col_name)
-			return PyTable(selected_cols)
+			return Table(selected_cols)
 		
 		if isinstance(key, tuple):
 			if len(key) != len(self.shape):
-				raise PyVectorKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
+				raise JibKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
 
 			# Reject 3+ dimensional indexing explicitly
 			if len(key) > 2:
-				raise PyVectorKeyError(
-					f"PyTable only supports 2D indexing (row, column); "
+				raise JibKeyError(
+					f"Table only supports 2D indexing (row, column); "
 					f"got {len(key)} indices."
 				)
 
@@ -445,12 +445,12 @@ class PyTable(PyVector):
 			
 			# Get the row-sliced table first
 			if isinstance(row_spec, slice):
-				row_sliced = self[row_spec]  # Returns PyTable
+				row_sliced = self[row_spec]  # Returns Table
 			elif isinstance(row_spec, int):
 				# Single row -> return PyRow, then index into it
 				return self[row_spec][col_spec]
 			else:
-				raise PyVectorKeyError(f"Invalid row specifier: {type(row_spec)}")
+				raise JibKeyError(f"Invalid row specifier: {type(row_spec)}")
 			
 			# Now select columns from the row-sliced table
 			if isinstance(col_spec, int):
@@ -459,7 +459,7 @@ class PyTable(PyVector):
 			elif isinstance(col_spec, slice):
 				# Column slice by index
 				selected = row_sliced.cols()[col_spec]
-				return PyTable(selected)
+				return Table(selected)
 			elif isinstance(col_spec, str):
 				# Single column by name
 				return row_sliced[col_spec]
@@ -467,35 +467,35 @@ class PyTable(PyVector):
 				# Multiple columns by name
 				return row_sliced[col_spec]
 			else:
-				raise PyVectorKeyError(f"Invalid column specifier: {type(col_spec)}")
+				raise JibKeyError(f"Invalid column specifier: {type(col_spec)}")
 
 		if isinstance(key, int):
 			# Effectively a different input type (single not a list). Returning a value, not a vector.
-			if isinstance(self._underlying[0], PyTable):
+			if isinstance(self._underlying[0], Table):
 				return self._underlying[key]
-			return PyRow(self, key)
+			return Row(self, key)
 
-		if isinstance(key, PyVector) and key.schema().kind == bool and not key.schema().nullable:
+		if isinstance(key, Vector) and key.schema().kind == bool and not key.schema().nullable:
 			assert (len(self) == len(key))
-			return PyVector(tuple(x[key] for x in self._underlying),
+			return Vector(tuple(x[key] for x in self._underlying),
 				dtype = self._dtype
 			)
 		if isinstance(key, list) and {type(e) for e in key} == {bool}:
 			assert (len(self) == len(key))
-			return PyVector(tuple(x[key] for x in self._underlying),
+			return Vector(tuple(x[key] for x in self._underlying),
 				dtype = self._dtype
 			)
 		if isinstance(key, slice):
-			return PyVector(tuple(x[key] for x in self._underlying), 
+			return Vector(tuple(x[key] for x in self._underlying), 
 				dtype = self._dtype,
 				name=self._name
 			)
 
 		# NOT RECOMMENDED
-		if isinstance(key, PyVector) and key.schema().kind == int and not key.schema().nullable:
+		if isinstance(key, Vector) and key.schema().kind == int and not key.schema().nullable:
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors; prefer slices or boolean masks')
-			return PyVector(tuple(x[key] for x in self._underlying),
+			return Vector(tuple(x[key] for x in self._underlying),
 				dtype = self._dtype
 			)
 
@@ -512,7 +512,7 @@ class PyTable(PyVector):
 		if isinstance(key, tuple):
 			# t[row, col]
 			if len(key) != 2:
-				raise PyVectorKeyError("PyTable assignment requires 1D (row) or 2D (row, col) key.")
+				raise JibKeyError("Table assignment requires 1D (row) or 2D (row, col) key.")
 			row_spec, col_spec = key
 		else:
 			# t[row] or t[slice] -> implies all columns
@@ -532,7 +532,7 @@ class PyTable(PyVector):
 			# Look up by name
 			idx = self._column_map.get(col_spec) or self._column_map.get(col_spec.lower())
 			if idx is None:
-				raise PyVectorKeyError(f"Column '{col_spec}' not found")
+				raise JibKeyError(f"Column '{col_spec}' not found")
 			target_indices = [idx]
 		elif isinstance(col_spec, (tuple, list)):
 			# Handle list of names/ints
@@ -540,12 +540,12 @@ class PyTable(PyVector):
 				if isinstance(c, str):
 					idx = self._column_map.get(c) or self._column_map.get(c.lower())
 					if idx is None:
-						raise PyVectorKeyError(f"Column '{c}' not found")
+						raise JibKeyError(f"Column '{c}' not found")
 					target_indices.append(idx)
 				elif isinstance(c, int):
 					target_indices.append(c)
 		else:
-			raise PyVectorTypeError(f"Invalid column index type: {type(col_spec)}")
+			raise JibTypeError(f"Invalid column index type: {type(col_spec)}")
 
 		if not target_indices:
 			return # No columns selected, nothing to do
@@ -565,7 +565,7 @@ class PyTable(PyVector):
 			# Materialize generator to avoid exhaustion if reused
 			val_seq = list(value)
 			if len(val_seq) != len(target_indices):
-				raise PyVectorValueError(
+				raise JibValueError(
 					f"Row assignment length mismatch: Table target has {len(target_indices)} columns, "
 					f"but value has {len(val_seq)} items."
 				)
@@ -576,9 +576,9 @@ class PyTable(PyVector):
 
 		# CASE C: Rectangular/Table Assignment
 		# t[1:3, 2:4] = other_table
-		if isinstance(value, PyTable):
+		if isinstance(value, Table):
 			if len(value.cols()) != len(target_indices):
-				raise PyVectorValueError(
+				raise JibValueError(
 					f"Column count mismatch: Target has {len(target_indices)} cols, "
 					f"source table has {len(value.cols())} cols."
 				)
@@ -590,28 +590,28 @@ class PyTable(PyVector):
 
 		# CASE D: Raw 2D Iterable Assignment (List of Columns? List of Rows?)
 		# Ambiguity Trap: Is [[1,2], [3,4]] two rows of two, or two columns of two?
-		# PyVector standard: "Iterables usually mean columns". 
-		# If you pass a list of lists, we treat it as list-of-columns to match PyTable structure.
+		# Vector standard: "Iterables usually mean columns". 
+		# If you pass a list of lists, we treat it as list-of-columns to match Table structure.
 		# SPECIAL CASE: If we have a single target column and value is a flat list,
 		# treat it as values for that column, not as multiple columns.
 		if isinstance(value, (list, tuple)):
 			# Single column slice assignment: t[:, 'x'] = [1, 2, 3]
 			if len(target_indices) == 1:
 				# Check if it's a flat list (not nested)
-				if not value or not isinstance(value[0], (list, tuple, PyVector)):
+				if not value or not isinstance(value[0], (list, tuple, Vector)):
 					# Flat list -> assign to the single column
 					self._underlying[target_indices[0]][row_spec] = value
 					return
 			
 			if len(value) != len(target_indices):
-				raise PyVectorValueError(f"Shape mismatch: expected {len(target_indices)} columns/items.")
+				raise JibValueError(f"Shape mismatch: expected {len(target_indices)} columns/items.")
 			
 			# Assume value[i] corresponds to target_indices[i]
 			for i, col_idx in enumerate(target_indices):
 				self._underlying[col_idx][row_spec] = value[i]
 			return
 
-		raise PyVectorTypeError(f"Unsupported assignment value type: {type(value)}")
+		raise JibTypeError(f"Unsupported assignment value type: {type(value)}")
 
 	def __iter__(self):
 		"""
@@ -619,7 +619,7 @@ class PyTable(PyVector):
 		Snapshots data state at start of iteration for performance.
 		"""
 		# Use the WET/Optimized view for loops
-		row_view = PyRow(self, 0)
+		row_view = Row(self, 0)
 		
 		# Cache length locally to avoid self.__len__() call in loop
 		n = len(self)
@@ -634,17 +634,17 @@ class PyTable(PyVector):
 
 	def _elementwise_compare(self, other, op):
 		other = self._check_duplicate(other)
-		if isinstance(other, PyVector):
+		if isinstance(other, Vector):
 			# Raise mismatched column counts
 			if len(self.cols()) != len(other.cols()):
 				raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other.cols())}")
-			return PyVector(tuple(op(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)), False, bool, True)
+			return Vector(tuple(op(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)), False, bool, True)
 		if hasattr(other, '__iter__'):
 			# Raise mismatched row counts
 			if len(self) != len(other):
 				raise ValueError(f"Row count mismatch: {len(self)} != {len(other)}")
-			return PyVector(tuple(op(x, y) for x, y in zip(self, other, strict=True)), False, bool, True).T
-		return PyVector(tuple(op(x, other) for x in self.cols()), False, bool, True)
+			return Vector(tuple(op(x, y) for x, y in zip(self, other, strict=True)), False, bool, True).T
+		return Vector(tuple(op(x, other) for x in self.cols()), False, bool, True)
 
 	def __rshift__(self, other):
 		""" The >> operator behavior has been overridden to add the column(s) of other to self
@@ -654,19 +654,19 @@ class PyTable(PyVector):
 
 		# Dict syntax: {name: values, ...}
 		if isinstance(other, dict):
-			# Convert dict to named PyVectors
+			# Convert dict to named Vectors
 			named_cols = []
 			for col_name, values in other.items():
-				# Convert to PyVector if needed
-				if isinstance(values, PyVector):
+				# Convert to Vector if needed
+				if isinstance(values, Vector):
 					col = values.copy()  # Copy to prevent aliasing
 				elif hasattr(values, "__iter__") and not isinstance(values, (str, bytes)):
-					col = PyVector(values)
+					col = Vector(values)
 				else:
 					# Reject scalars - user must be explicit
 					raise ValueError(
-						f"Column '{col_name}' value must be iterable (list, PyVector, etc.), not scalar. "
-						f"Use PyVector.new({values!r}, {len(self)}) for scalar broadcast."
+						f"Column '{col_name}' value must be iterable (list, Vector, etc.), not scalar. "
+						f"Use Vector.new({values!r}, {len(self)}) for scalar broadcast."
 					)
 				
 				# Validate length
@@ -680,38 +680,38 @@ class PyTable(PyVector):
 				named_cols.append(col)
 			
 			# Return new table with appended columns
-			return PyTable(tuple(self._underlying) + tuple(named_cols))
+			return Table(tuple(self._underlying) + tuple(named_cols))
 
-		if isinstance(other, PyTable):
+		if isinstance(other, Table):
 			if self._dtype is not None and not self._dtype.nullable and other.schema() is not None and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise PyVectorTypeError("Cannot concatenate two typesafe PyVectors of different types")
+				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
-			return PyVector(self.cols() + other.cols(),
+			return Vector(self.cols() + other.cols(),
 				dtype=self._dtype)
-		if isinstance(other, PyVector):
+		if isinstance(other, Vector):
 			# Adding a column to a table - tables can have mixed-type columns
-			return PyVector(self.cols() + (other,),
+			return Vector(self.cols() + (other,),
 				dtype=self._dtype)
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
-			# Convert iterable to PyVector and add as column (let PyVector infer dtype)
-			return PyVector(self.cols() + (PyVector(other),),
+			# Convert iterable to Vector and add as column (let Vector infer dtype)
+			return Vector(self.cols() + (Vector(other),),
 				dtype=self._dtype)
 		elif not self:
-			return PyVector((other,),
+			return Vector((other,),
 				dtype=self._dtype)
-		raise PyVectorTypeError("Cannot add a column of constant values. Try using PyVector.new(element, length).")
+		raise JibTypeError("Cannot add a column of constant values. Try using Vector.new(element, length).")
 
 
 	def __lshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append) the new array to the end of the first
 		"""
-		if isinstance(other, PyTable):
+		if isinstance(other, Table):
 			if len(self.cols()) != len(other.cols()):
 				raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other.cols())}")
-			return PyVector(tuple(x << y for x, y in zip(self.cols(), other.cols(), strict=True)))
+			return Vector(tuple(x << y for x, y in zip(self.cols(), other.cols(), strict=True)))
 		if len(self.cols()) != len(other):
 			raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other)}")
-		return PyVector(tuple(x << y for x, y in zip(self.cols(), other, strict=True)))
+		return Vector(tuple(x << y for x, y in zip(self.cols(), other, strict=True)))
 
 	@staticmethod
 	def _validate_key_tuple_hashable(key_tuple, key_cols, row_idx):
@@ -720,11 +720,11 @@ class PyTable(PyVector):
 		
 		Args:
 			key_tuple: The tuple of key values to validate
-			key_cols: List of key column PyVectors
+			key_cols: List of key column Vectors
 			row_idx: Row index for error messages
 		
 		Raises:
-			PyVectorTypeError: If any key component is not hashable
+			JibTypeError: If any key component is not hashable
 		"""
 		try:
 			hash(key_tuple)
@@ -735,12 +735,12 @@ class PyTable(PyVector):
 					hash(component)
 				except TypeError:
 					col_name = col._name or f"key_{i}"
-					raise PyVectorTypeError(
+					raise JibTypeError(
 						f"Join key value in '{col_name}' at row {row_idx} is not hashable: "
 						f"{type(component).__name__}. Join keys must be hashable."
 					) from e
 			# If we can't find the specific component, raise generic error
-			raise PyVectorTypeError(
+			raise JibTypeError(
 				f"Join key at row {row_idx} is not hashable."
 			) from e
 
@@ -750,19 +750,19 @@ class PyTable(PyVector):
 		
 		Args:
 			other: Right table to join with
-			left_on: Column name(s) or PyVector(s) from left table
-			right_on: Column name(s) or PyVector(s) from right table
+			left_on: Column name(s) or Vector(s) from left table
+			right_on: Column name(s) or Vector(s) from right table
 		
 		Returns:
-			List of (left_col, right_col) tuples (PyVector objects)
+			List of (left_col, right_col) tuples (Vector objects)
 		
 		Raises:
-			PyVectorValueError: For malformed specs or validation failures
-			PyVectorTypeError: For invalid dtypes or unhashable values
+			JibValueError: For malformed specs or validation failures
+			JibTypeError: For invalid dtypes or unhashable values
 		"""
 		from datetime import date, datetime
 		
-		# Helper: Resolve column from name or PyVector, validate ownership
+		# Helper: Resolve column from name or Vector, validate ownership
 		def get_column(table, col_spec, side_name):
 			# CASE 1 — string column name
 			if isinstance(col_spec, str):
@@ -774,15 +774,15 @@ class PyTable(PyVector):
 						context=f"{side_name} table"
 					)
 			
-			# CASE 2 — direct PyVector
-			elif isinstance(col_spec, PyVector):
+			# CASE 2 — direct Vector
+			elif isinstance(col_spec, Vector):
 				col = col_spec
-				# Note: Column ownership validation could be added here if PyVector
+				# Note: Column ownership validation could be added here if Vector
 				# gains a _parent_table attribute in the future
 			
 			else:
-				raise PyVectorValueError(
-					f"Column specification must be string or PyVector, got "
+				raise JibValueError(
+					f"Column specification must be string or Vector, got "
 					f"{type(col_spec).__name__}"
 				)
 			
@@ -799,7 +799,7 @@ class PyTable(PyVector):
 			
 			# Floats are NOT allowed — non-deterministic equality
 			if kind is float:
-				raise PyVectorTypeError(
+				raise JibTypeError(
 					f"Invalid join key dtype 'float' at position {idx} on {side_name} side. "
 					"Floating-point columns cannot be used as join keys due to precision issues."
 				)
@@ -808,25 +808,25 @@ class PyTable(PyVector):
 			# complex is excluded (not typically used for joins, can be added if needed)
 			allowed_types = (int, str, bool, date, datetime, object)
 			if kind not in allowed_types:
-				raise PyVectorTypeError(
+				raise JibTypeError(
 					f"Invalid join key dtype '{kind.__name__}' at position {idx} on {side_name} side. "
 					"Join keys must support stable equality and hashing."
 				)
 		
 		# Normalize to lists
-		if isinstance(left_on, (str, PyVector)):
+		if isinstance(left_on, (str, Vector)):
 			left_on = [left_on]
-		if isinstance(right_on, (str, PyVector)):
+		if isinstance(right_on, (str, Vector)):
 			right_on = [right_on]
 		
 		if not (isinstance(left_on, list) and isinstance(right_on, list)):
-			raise PyVectorValueError("left_on and right_on must be strings, PyVectors, or lists")
+			raise JibValueError("left_on and right_on must be strings, Vectors, or lists")
 		
 		if not left_on or not right_on:
-			raise PyVectorValueError("Must specify at least 1 join key")
+			raise JibValueError("Must specify at least 1 join key")
 		
 		if len(left_on) != len(right_on):
-			raise PyVectorValueError(
+			raise JibValueError(
 				f"left_on and right_on must have same length: "
 				f"got {len(left_on)} and {len(right_on)}"
 			)
@@ -839,12 +839,12 @@ class PyTable(PyVector):
 			
 			# Length validation
 			if len(left_col) != len(self):
-				raise PyVectorValueError(
+				raise JibValueError(
 					f"Left join key at index {i} has length {len(left_col)}, "
 					f"but left table has {len(self)} rows"
 				)
 			if len(right_col) != len(other):
-				raise PyVectorValueError(
+				raise JibValueError(
 					f"Right join key at index {i} has length {len(right_col)}, "
 					f"but right table has {len(other)} rows"
 				)
@@ -858,7 +858,7 @@ class PyTable(PyVector):
 			right_schema = right_col.schema()
 			if left_schema is not None and right_schema is not None:
 				if left_schema.kind is not right_schema.kind:
-					raise PyVectorTypeError(
+					raise JibTypeError(
 						f"Join key at index {i} has mismatched dtypes: "
 						f"{left_schema.kind.__name__} (left) vs {right_schema.kind.__name__} (right)"
 					)
@@ -869,21 +869,21 @@ class PyTable(PyVector):
 
 	def inner_join(self, other, left_on, right_on, expect='many_to_one'):
 		"""
-		Inner join two PyTables on specified key columns.
+		Inner join two Tables on specified key columns.
 		Only returns rows where keys match in both tables.
 		
 		Args:
-			other: PyTable to join with
-			left_on: Column name(s) or PyVector(s) from left table
-			right_on: Column name(s) or PyVector(s) from right table
+			other: Table to join with
+			left_on: Column name(s) or Vector(s) from left table
+			right_on: Column name(s) or Vector(s) from right table
 			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
 		
 		Returns:
-			PyTable with joined results
+			Table with joined results
 		"""
 		# Validate cardinality flag early
 		if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
-			raise PyVectorValueError(
+			raise JibValueError(
 				f"Invalid expect='{expect}'. "
 				"Must be one of 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
 			)
@@ -925,7 +925,7 @@ class PyTable(PyVector):
 			
 			# Validate hashability for object dtype columns
 			if validate_hashable:
-				PyTable._validate_key_tuple_hashable(key, right_keys, row_idx)
+				Table._validate_key_tuple_hashable(key, right_keys, row_idx)
 			
 			bucket = right_index_get(key)
 			if bucket is None:
@@ -938,7 +938,7 @@ class PyTable(PyVector):
 		# Cardinality check on right (one-to-one, many-to-one)
 		if check_right_unique and duplicates:
 			example_key, example_indices = next(iter(duplicates.items()))
-			raise PyVectorValueError(
+			raise JibValueError(
 				f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 				f"Example: {example_key} appears {len(example_indices)} times."
 			)
@@ -962,12 +962,12 @@ class PyTable(PyVector):
 			
 			# Validate hashability for object dtype columns
 			if validate_hashable:
-				PyTable._validate_key_tuple_hashable(key, left_keys, left_idx)
+				Table._validate_key_tuple_hashable(key, left_keys, left_idx)
 			
 			# Enforce left-side cardinality (if needed)
 			if check_left_unique:
 				if key in left_keys_seen:
-					raise PyVectorValueError(
+					raise JibValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -989,42 +989,42 @@ class PyTable(PyVector):
 		
 		# Handle empty result
 		if all(len(col) == 0 for col in result_data):
-			return PyTable(())
+			return Table(())
 		
 		# ------------------------------------------------------------------
-		# 5. Wrap result_data in PyVectors
+		# 5. Wrap result_data in Vectors
 		# ------------------------------------------------------------------
 		result_cols = []
 		
 		# Left columns (preserve name)
 		for col_idx, orig_col in enumerate(left_cols):
-			result_cols.append(PyVector(result_data[col_idx], name=orig_col._name))
+			result_cols.append(Vector(result_data[col_idx], name=orig_col._name))
 		
 		# Right columns (preserve name)
 		base = n_left_cols
 		for offset, orig_col in enumerate(right_cols):
-			result_cols.append(PyVector(result_data[base + offset], name=orig_col._name))
+			result_cols.append(Vector(result_data[base + offset], name=orig_col._name))
 		
-		return PyTable(result_cols)
+		return Table(result_cols)
 
 	def join(self, other, left_on, right_on, expect='many_to_one'):
 		"""
-		Left join two PyTables on specified key columns.
+		Left join two Tables on specified key columns.
 		Returns all rows from left table, with matching rows from right (or None for no match).
 		
 		Args:
-			other: PyTable to join with
-			left_on: Column name(s) or PyVector(s) from left table
-			right_on: Column name(s) or PyVector(s) from right table
+			other: Table to join with
+			left_on: Column name(s) or Vector(s) from left table
+			right_on: Column name(s) or Vector(s) from right table
 			expect: Cardinality expectation - 'one_to_one', 'many_to_one',
 					'one_to_many', or 'many_to_many'
 		
 		Returns:
-			PyTable with joined results
+			Table with joined results
 		"""
 		# Validate expectation value early
 		if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
-			raise PyVectorValueError(
+			raise JibValueError(
 				f"Invalid expect value '{expect}'. "
 				"Must be one of 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
 			)
@@ -1032,7 +1032,7 @@ class PyTable(PyVector):
 		# Validate and normalize join keys
 		pairs = self._validate_join_keys(other, left_on, right_on)
 		
-		# Extract join key columns (PyVectors)
+		# Extract join key columns (Vectors)
 		left_keys = [lk for lk, _ in pairs]
 		right_keys = [rk for _, rk in pairs]
 		
@@ -1073,7 +1073,7 @@ class PyTable(PyVector):
 		# Enforce right-side uniqueness if required
 		if check_right_unique and duplicates:
 			example_key, example_indices = next(iter(duplicates.items()))
-			raise PyVectorValueError(
+			raise JibValueError(
 				f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 				f"Found at least {len(duplicates)} duplicate key(s), e.g., {example_key} "
 				f"appears {len(example_indices)} times."
@@ -1102,7 +1102,7 @@ class PyTable(PyVector):
 			# Enforce left-side uniqueness if needed
 			if check_left_unique:
 				if key in left_keys_seen:
-					raise PyVectorValueError(
+					raise JibValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -1131,43 +1131,43 @@ class PyTable(PyVector):
 		
 		# Handle completely empty result
 		if left_nrows == 0:
-			return PyTable(())
+			return Table(())
 		
-		# Wrap result_data into PyVectors, preserving column names
+		# Wrap result_data into Vectors, preserving column names
 		result_cols = []
 		
 		# Left table columns
 		for col_idx, orig_col in enumerate(left_cols):
 			col_data = result_data[col_idx]
-			result_cols.append(PyVector(col_data, name=orig_col._name))
+			result_cols.append(Vector(col_data, name=orig_col._name))
 		
 		# Right table columns
 		for j, orig_col in enumerate(right_cols):
 			col_data = result_data[n_left_cols + j]
-			result_cols.append(PyVector(col_data, name=orig_col._name))
+			result_cols.append(Vector(col_data, name=orig_col._name))
 		
-		return PyTable(result_cols)
+		return Table(result_cols)
 
 	def full_join(self, other, left_on, right_on, expect='many_to_many'):
 		"""
-		Full outer join of two PyTables. Includes:
+		Full outer join of two Tables. Includes:
 			- All rows from left table
 			- All rows from right table
 			- Matching rows combined
 			- None where no match exists
 		
 		Args:
-			other: PyTable to join with
-			left_on: Column name(s) or PyVector(s) from left table
-			right_on: Column name(s) or PyVector(s) from right table
+			other: Table to join with
+			left_on: Column name(s) or Vector(s) from left table
+			right_on: Column name(s) or Vector(s) from right table
 			expect: Cardinality expectation - 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'
 		
 		Returns:
-			PyTable with joined results
+			Table with joined results
 		"""
 		# Validate expectation string
 		if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
-			raise PyVectorValueError(
+			raise JibValueError(
 				f"Invalid expect='{expect}'. "
 				"Must be 'one_to_one', 'many_to_one', 'one_to_many', or 'many_to_many'."
 			)
@@ -1208,7 +1208,7 @@ class PyTable(PyVector):
 			
 			# Validate hashability for object dtype columns
 			if validate_hashable:
-				PyTable._validate_key_tuple_hashable(key, right_keys, right_idx)
+				Table._validate_key_tuple_hashable(key, right_keys, right_idx)
 			
 			bucket = right_index_get(key)
 			if bucket is None:
@@ -1221,7 +1221,7 @@ class PyTable(PyVector):
 		# Enforce right-side cardinality if necessary
 		if check_right_unique and duplicates:
 			example_key, example_inds = next(iter(duplicates.items()))
-			raise PyVectorValueError(
+			raise JibValueError(
 				f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 				f"Example: {example_key} appears {len(example_inds)} times."
 			)
@@ -1252,12 +1252,12 @@ class PyTable(PyVector):
 			
 			# Validate hashability for object dtype columns
 			if validate_hashable:
-				PyTable._validate_key_tuple_hashable(key, left_keys, left_idx)
+				Table._validate_key_tuple_hashable(key, left_keys, left_idx)
 			
 			# Enforce left-side cardinality
 			if check_left_unique:
 				if key in left_keys_seen:
-					raise PyVectorValueError(
+					raise JibValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -1303,23 +1303,23 @@ class PyTable(PyVector):
 		# 7. If empty, return empty table
 		# ------------------------------------------------------------------
 		if left_nrows == 0 and right_nrows == 0:
-			return PyTable(())
+			return Table(())
 		
 		# ------------------------------------------------------------------
-		# 8. Wrap into PyVectors with names preserved
+		# 8. Wrap into Vectors with names preserved
 		# ------------------------------------------------------------------
 		result_cols = []
 		
 		# Left columns
 		for col_idx, orig_col in enumerate(left_cols):
-			result_cols.append(PyVector(result_data[col_idx], name=orig_col._name))
+			result_cols.append(Vector(result_data[col_idx], name=orig_col._name))
 		
 		# Right columns
 		base = n_left_cols
 		for offset, orig_col in enumerate(right_cols):
-			result_cols.append(PyVector(result_data[base + offset], name=orig_col._name))
+			result_cols.append(Vector(result_data[base + offset], name=orig_col._name))
 		
-		return PyTable(result_cols)
+		return Table(result_cols)
 	
 	def aggregate(
 		self,
@@ -1341,17 +1341,17 @@ class PyTable(PyVector):
 		Group rows by partition keys and compute aggregations.
 		
 		Args:
-			over: PyVector(s) to partition/group by
-			sum_over: PyVector(s) to sum within each group
-			mean_over: PyVector(s) to average within each group
-			min_over: PyVector(s) to find minimum within each group
-			max_over: PyVector(s) to find maximum within each group
-			stdev_over: PyVector(s) to compute standard deviation within each group
-			count_over: PyVector(s) to count non-None values within each group
+			over: Vector(s) to partition/group by
+			sum_over: Vector(s) to sum within each group
+			mean_over: Vector(s) to average within each group
+			min_over: Vector(s) to find minimum within each group
+			max_over: Vector(s) to find maximum within each group
+			stdev_over: Vector(s) to compute standard deviation within each group
+			count_over: Vector(s) to count non-None values within each group
 			apply: Dict of {name: (column, function)} for custom aggregations
 		
 		Returns:
-			PyTable with one row per unique partition key combination
+			Table with one row per unique partition key combination
 		
 		Examples:
 			# Group by customer_id, sum orders
@@ -1368,7 +1368,7 @@ class PyTable(PyVector):
 		# ------------------------------------------------------------------
 		# 1. Normalize inputs
 		# ------------------------------------------------------------------
-		if isinstance(over, PyVector):
+		if isinstance(over, Vector):
 			over = [over]
 		
 		# Normalize all agg lists
@@ -1390,7 +1390,7 @@ class PyTable(PyVector):
 		nrows = len(self)
 		for i, col in enumerate(over):
 			if len(col) != nrows:
-				raise PyVectorValueError(
+				raise JibValueError(
 					f"Partition key at index {i} has length {len(col)}, "
 					f"but table has {nrows} rows."
 				)
@@ -1448,7 +1448,7 @@ class PyTable(PyVector):
 		# Pre-bind: this is fast because group_items holds (key, rows)
 		for idx, col in enumerate(over):
 			values = [key[idx] for key, _ in group_items]
-			result_cols.append(PyVector(values, name=uniquify(col._name or "key")))
+			result_cols.append(Vector(values, name=uniquify(col._name or "key")))
 		
 		# ------------------------------------------------------------------
 		# 6. Column-major helper: aggregate one column for all groups
@@ -1465,7 +1465,7 @@ class PyTable(PyVector):
 				out.append(res)
 			
 			name = uniquify(make_agg_name(col, suffix))
-			result_cols.append(PyVector(out, name=name))
+			result_cols.append(Vector(out, name=name))
 		
 		# ------------------------------------------------------------------
 		# 7. Built-in aggregations (fast, no repeated scans)
@@ -1475,7 +1475,7 @@ class PyTable(PyVector):
 		if sum_over:
 			for col in sum_over:
 				if len(col) != nrows:
-					raise PyVectorValueError(f"Aggregation column has wrong length")
+					raise JibValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				aggregate_col(
 					col,
@@ -1487,7 +1487,7 @@ class PyTable(PyVector):
 		if mean_over:
 			for col in mean_over:
 				if len(col) != nrows:
-					raise PyVectorValueError(f"Aggregation column has wrong length")
+					raise JibValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				def mean_func(vals, d=d):
 					clean = [v for v in vals if v is not None]
@@ -1499,7 +1499,7 @@ class PyTable(PyVector):
 		if min_over:
 			for col in min_over:
 				if len(col) != nrows:
-					raise PyVectorValueError(f"Aggregation column has wrong length")
+					raise JibValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				def min_func(vals, d=d):
 					clean = [v for v in vals if v is not None]
@@ -1511,7 +1511,7 @@ class PyTable(PyVector):
 		if max_over:
 			for col in max_over:
 				if len(col) != nrows:
-					raise PyVectorValueError(f"Aggregation column has wrong length")
+					raise JibValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				def max_func(vals, d=d):
 					clean = [v for v in vals if v is not None]
@@ -1523,7 +1523,7 @@ class PyTable(PyVector):
 		if count_over:
 			for col in count_over:
 				if len(col) != nrows:
-					raise PyVectorValueError(f"Aggregation column has wrong length")
+					raise JibValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				aggregate_col(
 					col,
@@ -1535,7 +1535,7 @@ class PyTable(PyVector):
 		if stdev_over:
 			for col in stdev_over:
 				if len(col) != nrows:
-					raise PyVectorValueError(f"Aggregation column has wrong length")
+					raise JibValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				
 				def stdev_func(vals, d=d):
@@ -1555,19 +1555,19 @@ class PyTable(PyVector):
 		if apply is not None:
 			for agg_name, (col, func) in apply.items():
 				if len(col) != nrows:
-					raise PyVectorValueError(f"Custom aggregation column '{agg_name}' has wrong length")
+					raise JibValueError(f"Custom aggregation column '{agg_name}' has wrong length")
 				d = col._underlying
 				out = []
 				for key, row_indices in group_items:
 					vals = [d[i] for i in row_indices]
 					out.append(func(vals))
 				
-				result_cols.append(PyVector(out, name=uniquify(agg_name)))
+				result_cols.append(Vector(out, name=uniquify(agg_name)))
 		
 		# ------------------------------------------------------------------
 		# 9. Final table
 		# ------------------------------------------------------------------
-		return PyTable(result_cols)
+		return Table(result_cols)
 
 	def window(
 		self,
@@ -1591,17 +1591,17 @@ class PyTable(PyVector):
 		Similar to aggregate(), but repeats the aggregated value for each row in the group.
 		
 		Args:
-			over: PyVector(s) to partition/group by
-			sum_over: PyVector(s) to sum within each group
-			mean_over: PyVector(s) to average within each group
-			min_over: PyVector(s) to find minimum within each group
-			max_over: PyVector(s) to find maximum within each group
-			stdev_over: PyVector(s) to compute standard deviation within each group
-			count_over: PyVector(s) to count non-None values within each group
+			over: Vector(s) to partition/group by
+			sum_over: Vector(s) to sum within each group
+			mean_over: Vector(s) to average within each group
+			min_over: Vector(s) to find minimum within each group
+			max_over: Vector(s) to find maximum within each group
+			stdev_over: Vector(s) to compute standard deviation within each group
+			count_over: Vector(s) to count non-None values within each group
 			apply: Dict of {name: (column, function)} for custom aggregations
 		
 		Returns:
-			PyTable with same number of rows as input, with aggregated values repeated
+			Table with same number of rows as input, with aggregated values repeated
 		
 		Examples:
 			# Add running total per customer
@@ -1617,7 +1617,7 @@ class PyTable(PyVector):
 		# ----------------------------------------------------------------------
 		# 1. Normalize inputs
 		# ----------------------------------------------------------------------
-		if isinstance(over, PyVector):
+		if isinstance(over, Vector):
 			over = [over]
 		
 		# Normalize aggregation lists
@@ -1690,7 +1690,7 @@ class PyTable(PyVector):
 		result_cols = []
 		for col in over:
 			result_cols.append(
-				PyVector(list(col), name=uniquify(col._name or "key"))
+				Vector(list(col), name=uniquify(col._name or "key"))
 			)
 		
 		# ----------------------------------------------------------------------
@@ -1724,7 +1724,7 @@ class PyTable(PyVector):
 					return sum(v for v in vals if v is not None)
 				gm = compute_group_values(col, fn)
 				result_cols.append(
-					PyVector(expand_to_rows(gm), name=uniquify(sanitize(col, "sum")))
+					Vector(expand_to_rows(gm), name=uniquify(sanitize(col, "sum")))
 				)
 		
 		# MEAN
@@ -1737,7 +1737,7 @@ class PyTable(PyVector):
 					return sum(clean) / len(clean) if clean else None
 				gm = compute_group_values(col, fn)
 				result_cols.append(
-					PyVector(expand_to_rows(gm), name=uniquify(sanitize(col, "mean")))
+					Vector(expand_to_rows(gm), name=uniquify(sanitize(col, "mean")))
 				)
 		
 		# MIN
@@ -1750,7 +1750,7 @@ class PyTable(PyVector):
 					return min(clean) if clean else None
 				gm = compute_group_values(col, fn)
 				result_cols.append(
-					PyVector(expand_to_rows(gm), name=uniquify(sanitize(col, "min")))
+					Vector(expand_to_rows(gm), name=uniquify(sanitize(col, "min")))
 				)
 		
 		# MAX
@@ -1763,7 +1763,7 @@ class PyTable(PyVector):
 					return max(clean) if clean else None
 				gm = compute_group_values(col, fn)
 				result_cols.append(
-					PyVector(expand_to_rows(gm), name=uniquify(sanitize(col, "max")))
+					Vector(expand_to_rows(gm), name=uniquify(sanitize(col, "max")))
 				)
 		
 		# COUNT
@@ -1775,7 +1775,7 @@ class PyTable(PyVector):
 					return sum(1 for v in vals if v is not None)
 				gm = compute_group_values(col, fn)
 				result_cols.append(
-					PyVector(expand_to_rows(gm), name=uniquify(sanitize(col, "count")))
+					Vector(expand_to_rows(gm), name=uniquify(sanitize(col, "count")))
 				)
 		
 		# STDEV
@@ -1793,7 +1793,7 @@ class PyTable(PyVector):
 				
 				gm = compute_group_values(col, fn)
 				result_cols.append(
-					PyVector(expand_to_rows(gm), name=uniquify(sanitize(col, "stdev")))
+					Vector(expand_to_rows(gm), name=uniquify(sanitize(col, "stdev")))
 				)
 		
 		# ----------------------------------------------------------------------
@@ -1809,10 +1809,13 @@ class PyTable(PyVector):
 					for key, rows in group_items
 				}
 				result_cols.append(
-					PyVector(expand_to_rows(gm), name=uniquify(name))
+					Vector(expand_to_rows(gm), name=uniquify(name))
 				)
 		
 		# ----------------------------------------------------------------------
 		# 10. Final table
 		# ----------------------------------------------------------------------
-		return PyTable(result_cols)
+		return Table(result_cols)
+
+
+

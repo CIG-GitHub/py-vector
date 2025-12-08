@@ -1,4 +1,4 @@
-"""Display and repr logic for PyVector and PyTable."""
+"""Display and repr logic for Vector and Table."""
 
 from __future__ import annotations
 from datetime import date
@@ -19,7 +19,7 @@ def _needs_quote(name: str) -> bool:
 	- It's not a valid Python identifier
 	- It starts with a digit
 	- It parses as a number
-	- It collides with PyVector/PyTable reserved method names
+	- It collides with Vector/Table reserved method names
 	"""
 	# Always quote empty names
 	if not name:
@@ -85,7 +85,7 @@ def _format_column(col, max_preview: int = MAX_HEAD_ROWS) -> List[str]:
 
 
 def _compute_headers(cols, col_indices, sanitize_func, uniquify_func):
-	"""Given PyTable columns and indices, returns display_names, sanitized_names, dtypes."""
+	"""Given Table columns and indices, returns display_names, sanitized_names, dtypes."""
 	display_names = []
 	sanitized_names = []
 	dtypes = []
@@ -257,7 +257,7 @@ def _footer(pv, dtype_list=None, truncated=False, shown=MAX_HEAD_COLS) -> str:
 
 
 def _repr_vector(v) -> str:
-	"""Pretty repr for a 1D PyVector."""
+	"""Pretty repr for a 1D Vector."""
 	formatted = _format_column(v)
 	
 	# Compute width: max of data and header (if present)
@@ -288,7 +288,7 @@ def _repr_vector(v) -> str:
 
 
 def _repr_table(tbl) -> str:
-	"""Pretty repr for a 2D PyTable."""
+	"""Pretty repr for a 2D Table."""
 	from .naming import _sanitize_user_name, _uniquify
 	
 	cols = tbl.cols()
@@ -367,10 +367,11 @@ def _repr_table(tbl) -> str:
 
 
 def _printr(pv) -> str:
-	"""Entry point used by PyVector.__repr__ and PyTable.__repr__."""
+	"""Entry point used by Vector.__repr__ and Table.__repr__."""
 	nd = len(pv.shape)
 	if nd == 1:
 		return _repr_vector(pv)
 	if nd == 2:
 		return _repr_table(pv)
 	return _footer(pv) + " (repr not yet implemented)"
+
