@@ -11,8 +11,8 @@ pytest testing/test_Table.py::TestJoins -v  # Run specific test class
 ## Project Structure
 
 ```
-jib/
-├── jib.py           # Core Vector class and typed subclasses
+serif/
+├── serif.py           # Core Vector class and typed subclasses
 ├── py_table.py            # Table (joins, aggregate, window)
 ├── _errors.py             # Exception types
 ├── _typeutils.py          # Helper utilities
@@ -32,13 +32,13 @@ jib/
 
 ## Key Modules
 
-### `jib.py`
+### `serif.py`
 - Core `Vector` class with typed subclasses (`_Int`, `_Float`, `_String`, `_Date`)
 - Arithmetic operations and operator overloading
 - Fingerprinting and alias tracking
 - Elementwise operations
 
-### `py_table.py`
+### `table.py`
 - `Table` class (vector-of-vectors)
 - Join operations (inner, left, full outer)
 - Aggregate and window functions

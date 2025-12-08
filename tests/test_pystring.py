@@ -1,6 +1,6 @@
 """_String specific tests - string method proxying"""
 import pytest
-from jib import Vector, _String
+from serif import Vector, _String
 
 
 class TestStringCreation:

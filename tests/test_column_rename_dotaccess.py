@@ -1,5 +1,5 @@
 import pytest
-from jib import Vector, Table
+from serif import Vector, Table
 
 
 def test_stale_column_name_after_vector_rename():

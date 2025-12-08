@@ -1,6 +1,6 @@
 """_Float specific tests - float method proxying"""
 import pytest
-from jib import Vector, _Float
+from serif import Vector, _Float
 
 
 class TestFloatCreation:

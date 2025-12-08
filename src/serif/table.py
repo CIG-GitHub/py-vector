@@ -1,11 +1,11 @@
 import warnings
 from .vector import Vector
 from .naming import _sanitize_user_name, _uniquify
-from .errors import JibKeyError, JibValueError, JibTypeError
+from .errors import SerifKeyError, SerifValueError, SerifTypeError
 
 
 def _missing_col_error(name, context="Table"):
-	return JibKeyError(f"Column '{name}' not found in {context}")
+	return SerifKeyError(f"Column '{name}' not found in {context}")
 
 
 class Row(Vector):
@@ -307,7 +307,7 @@ class Table(Vector):
 		"""
 
 		if len(old_names) != len(new_names):
-			raise JibValueError("old_names and new_names must have the same length")
+			raise SerifValueError("old_names and new_names must have the same length")
 
 		# Simulate renames using a temporary list (avoid mid-state partial renames)
 		simulated = [col._name for col in self._underlying]
@@ -419,11 +419,11 @@ class Table(Vector):
 		
 		if isinstance(key, tuple):
 			if len(key) != len(self.shape):
-				raise JibKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
+				raise SerifKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
 
 			# Reject 3+ dimensional indexing explicitly
 			if len(key) > 2:
-				raise JibKeyError(
+				raise SerifKeyError(
 					f"Table only supports 2D indexing (row, column); "
 					f"got {len(key)} indices."
 				)
@@ -450,7 +450,7 @@ class Table(Vector):
 				# Single row -> return PyRow, then index into it
 				return self[row_spec][col_spec]
 			else:
-				raise JibKeyError(f"Invalid row specifier: {type(row_spec)}")
+				raise SerifKeyError(f"Invalid row specifier: {type(row_spec)}")
 			
 			# Now select columns from the row-sliced table
 			if isinstance(col_spec, int):
@@ -467,7 +467,7 @@ class Table(Vector):
 				# Multiple columns by name
 				return row_sliced[col_spec]
 			else:
-				raise JibKeyError(f"Invalid column specifier: {type(col_spec)}")
+				raise SerifKeyError(f"Invalid column specifier: {type(col_spec)}")
 
 		if isinstance(key, int):
 			# Effectively a different input type (single not a list). Returning a value, not a vector.
@@ -512,7 +512,7 @@ class Table(Vector):
 		if isinstance(key, tuple):
 			# t[row, col]
 			if len(key) != 2:
-				raise JibKeyError("Table assignment requires 1D (row) or 2D (row, col) key.")
+				raise SerifKeyError("Table assignment requires 1D (row) or 2D (row, col) key.")
 			row_spec, col_spec = key
 		else:
 			# t[row] or t[slice] -> implies all columns
@@ -532,7 +532,7 @@ class Table(Vector):
 			# Look up by name
 			idx = self._column_map.get(col_spec) or self._column_map.get(col_spec.lower())
 			if idx is None:
-				raise JibKeyError(f"Column '{col_spec}' not found")
+				raise SerifKeyError(f"Column '{col_spec}' not found")
 			target_indices = [idx]
 		elif isinstance(col_spec, (tuple, list)):
 			# Handle list of names/ints
@@ -540,12 +540,12 @@ class Table(Vector):
 				if isinstance(c, str):
 					idx = self._column_map.get(c) or self._column_map.get(c.lower())
 					if idx is None:
-						raise JibKeyError(f"Column '{c}' not found")
+						raise SerifKeyError(f"Column '{c}' not found")
 					target_indices.append(idx)
 				elif isinstance(c, int):
 					target_indices.append(c)
 		else:
-			raise JibTypeError(f"Invalid column index type: {type(col_spec)}")
+			raise SerifTypeError(f"Invalid column index type: {type(col_spec)}")
 
 		if not target_indices:
 			return # No columns selected, nothing to do
@@ -565,7 +565,7 @@ class Table(Vector):
 			# Materialize generator to avoid exhaustion if reused
 			val_seq = list(value)
 			if len(val_seq) != len(target_indices):
-				raise JibValueError(
+				raise SerifValueError(
 					f"Row assignment length mismatch: Table target has {len(target_indices)} columns, "
 					f"but value has {len(val_seq)} items."
 				)
@@ -578,7 +578,7 @@ class Table(Vector):
 		# t[1:3, 2:4] = other_table
 		if isinstance(value, Table):
 			if len(value.cols()) != len(target_indices):
-				raise JibValueError(
+				raise SerifValueError(
 					f"Column count mismatch: Target has {len(target_indices)} cols, "
 					f"source table has {len(value.cols())} cols."
 				)
@@ -604,14 +604,14 @@ class Table(Vector):
 					return
 			
 			if len(value) != len(target_indices):
-				raise JibValueError(f"Shape mismatch: expected {len(target_indices)} columns/items.")
+				raise SerifValueError(f"Shape mismatch: expected {len(target_indices)} columns/items.")
 			
 			# Assume value[i] corresponds to target_indices[i]
 			for i, col_idx in enumerate(target_indices):
 				self._underlying[col_idx][row_spec] = value[i]
 			return
 
-		raise JibTypeError(f"Unsupported assignment value type: {type(value)}")
+		raise SerifTypeError(f"Unsupported assignment value type: {type(value)}")
 
 	def __iter__(self):
 		"""
@@ -684,7 +684,7 @@ class Table(Vector):
 
 		if isinstance(other, Table):
 			if self._dtype is not None and not self._dtype.nullable and other.schema() is not None and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
+				raise SerifTypeError("Cannot concatenate two typesafe Vectors of different types")
 			# complicated typesafety rules here - what if a whole bunch of things.
 			return Vector(self.cols() + other.cols(),
 				dtype=self._dtype)
@@ -699,7 +699,7 @@ class Table(Vector):
 		elif not self:
 			return Vector((other,),
 				dtype=self._dtype)
-		raise JibTypeError("Cannot add a column of constant values. Try using Vector.new(element, length).")
+		raise SerifTypeError("Cannot add a column of constant values. Try using Vector.new(element, length).")
 
 
 	def __lshift__(self, other):
@@ -724,7 +724,7 @@ class Table(Vector):
 			row_idx: Row index for error messages
 		
 		Raises:
-			JibTypeError: If any key component is not hashable
+			SerifTypeError: If any key component is not hashable
 		"""
 		try:
 			hash(key_tuple)
@@ -735,12 +735,12 @@ class Table(Vector):
 					hash(component)
 				except TypeError:
 					col_name = col._name or f"key_{i}"
-					raise JibTypeError(
+					raise SerifTypeError(
 						f"Join key value in '{col_name}' at row {row_idx} is not hashable: "
 						f"{type(component).__name__}. Join keys must be hashable."
 					) from e
 			# If we can't find the specific component, raise generic error
-			raise JibTypeError(
+			raise SerifTypeError(
 				f"Join key at row {row_idx} is not hashable."
 			) from e
 
@@ -757,8 +757,8 @@ class Table(Vector):
 			List of (left_col, right_col) tuples (Vector objects)
 		
 		Raises:
-			JibValueError: For malformed specs or validation failures
-			JibTypeError: For invalid dtypes or unhashable values
+			SerifValueError: For malformed specs or validation failures
+			SerifTypeError: For invalid dtypes or unhashable values
 		"""
 		from datetime import date, datetime
 		
@@ -781,7 +781,7 @@ class Table(Vector):
 				# gains a _parent_table attribute in the future
 			
 			else:
-				raise JibValueError(
+				raise SerifValueError(
 					f"Column specification must be string or Vector, got "
 					f"{type(col_spec).__name__}"
 				)
@@ -799,7 +799,7 @@ class Table(Vector):
 			
 			# Floats are NOT allowed — non-deterministic equality
 			if kind is float:
-				raise JibTypeError(
+				raise SerifTypeError(
 					f"Invalid join key dtype 'float' at position {idx} on {side_name} side. "
 					"Floating-point columns cannot be used as join keys due to precision issues."
 				)
@@ -808,7 +808,7 @@ class Table(Vector):
 			# complex is excluded (not typically used for joins, can be added if needed)
 			allowed_types = (int, str, bool, date, datetime, object)
 			if kind not in allowed_types:
-				raise JibTypeError(
+				raise SerifTypeError(
 					f"Invalid join key dtype '{kind.__name__}' at position {idx} on {side_name} side. "
 					"Join keys must support stable equality and hashing."
 				)
@@ -820,13 +820,13 @@ class Table(Vector):
 			right_on = [right_on]
 		
 		if not (isinstance(left_on, list) and isinstance(right_on, list)):
-			raise JibValueError("left_on and right_on must be strings, Vectors, or lists")
+			raise SerifValueError("left_on and right_on must be strings, Vectors, or lists")
 		
 		if not left_on or not right_on:
-			raise JibValueError("Must specify at least 1 join key")
+			raise SerifValueError("Must specify at least 1 join key")
 		
 		if len(left_on) != len(right_on):
-			raise JibValueError(
+			raise SerifValueError(
 				f"left_on and right_on must have same length: "
 				f"got {len(left_on)} and {len(right_on)}"
 			)
@@ -839,12 +839,12 @@ class Table(Vector):
 			
 			# Length validation
 			if len(left_col) != len(self):
-				raise JibValueError(
+				raise SerifValueError(
 					f"Left join key at index {i} has length {len(left_col)}, "
 					f"but left table has {len(self)} rows"
 				)
 			if len(right_col) != len(other):
-				raise JibValueError(
+				raise SerifValueError(
 					f"Right join key at index {i} has length {len(right_col)}, "
 					f"but right table has {len(other)} rows"
 				)
@@ -858,7 +858,7 @@ class Table(Vector):
 			right_schema = right_col.schema()
 			if left_schema is not None and right_schema is not None:
 				if left_schema.kind is not right_schema.kind:
-					raise JibTypeError(
+					raise SerifTypeError(
 						f"Join key at index {i} has mismatched dtypes: "
 						f"{left_schema.kind.__name__} (left) vs {right_schema.kind.__name__} (right)"
 					)
@@ -883,7 +883,7 @@ class Table(Vector):
 		"""
 		# Validate cardinality flag early
 		if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
-			raise JibValueError(
+			raise SerifValueError(
 				f"Invalid expect='{expect}'. "
 				"Must be one of 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
 			)
@@ -938,7 +938,7 @@ class Table(Vector):
 		# Cardinality check on right (one-to-one, many-to-one)
 		if check_right_unique and duplicates:
 			example_key, example_indices = next(iter(duplicates.items()))
-			raise JibValueError(
+			raise SerifValueError(
 				f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 				f"Example: {example_key} appears {len(example_indices)} times."
 			)
@@ -967,7 +967,7 @@ class Table(Vector):
 			# Enforce left-side cardinality (if needed)
 			if check_left_unique:
 				if key in left_keys_seen:
-					raise JibValueError(
+					raise SerifValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -1024,7 +1024,7 @@ class Table(Vector):
 		"""
 		# Validate expectation value early
 		if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
-			raise JibValueError(
+			raise SerifValueError(
 				f"Invalid expect value '{expect}'. "
 				"Must be one of 'one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'."
 			)
@@ -1073,7 +1073,7 @@ class Table(Vector):
 		# Enforce right-side uniqueness if required
 		if check_right_unique and duplicates:
 			example_key, example_indices = next(iter(duplicates.items()))
-			raise JibValueError(
+			raise SerifValueError(
 				f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 				f"Found at least {len(duplicates)} duplicate key(s), e.g., {example_key} "
 				f"appears {len(example_indices)} times."
@@ -1102,7 +1102,7 @@ class Table(Vector):
 			# Enforce left-side uniqueness if needed
 			if check_left_unique:
 				if key in left_keys_seen:
-					raise JibValueError(
+					raise SerifValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -1167,7 +1167,7 @@ class Table(Vector):
 		"""
 		# Validate expectation string
 		if expect not in ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many'):
-			raise JibValueError(
+			raise SerifValueError(
 				f"Invalid expect='{expect}'. "
 				"Must be 'one_to_one', 'many_to_one', 'one_to_many', or 'many_to_many'."
 			)
@@ -1221,7 +1221,7 @@ class Table(Vector):
 		# Enforce right-side cardinality if necessary
 		if check_right_unique and duplicates:
 			example_key, example_inds = next(iter(duplicates.items()))
-			raise JibValueError(
+			raise SerifValueError(
 				f"Join expectation '{expect}' violated: Right side has duplicate keys.\n"
 				f"Example: {example_key} appears {len(example_inds)} times."
 			)
@@ -1257,7 +1257,7 @@ class Table(Vector):
 			# Enforce left-side cardinality
 			if check_left_unique:
 				if key in left_keys_seen:
-					raise JibValueError(
+					raise SerifValueError(
 						f"Join expectation '{expect}' violated: Left side has duplicate key {key}"
 					)
 				left_keys_seen.add(key)
@@ -1390,7 +1390,7 @@ class Table(Vector):
 		nrows = len(self)
 		for i, col in enumerate(over):
 			if len(col) != nrows:
-				raise JibValueError(
+				raise SerifValueError(
 					f"Partition key at index {i} has length {len(col)}, "
 					f"but table has {nrows} rows."
 				)
@@ -1475,7 +1475,7 @@ class Table(Vector):
 		if sum_over:
 			for col in sum_over:
 				if len(col) != nrows:
-					raise JibValueError(f"Aggregation column has wrong length")
+					raise SerifValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				aggregate_col(
 					col,
@@ -1487,7 +1487,7 @@ class Table(Vector):
 		if mean_over:
 			for col in mean_over:
 				if len(col) != nrows:
-					raise JibValueError(f"Aggregation column has wrong length")
+					raise SerifValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				def mean_func(vals, d=d):
 					clean = [v for v in vals if v is not None]
@@ -1499,7 +1499,7 @@ class Table(Vector):
 		if min_over:
 			for col in min_over:
 				if len(col) != nrows:
-					raise JibValueError(f"Aggregation column has wrong length")
+					raise SerifValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				def min_func(vals, d=d):
 					clean = [v for v in vals if v is not None]
@@ -1511,7 +1511,7 @@ class Table(Vector):
 		if max_over:
 			for col in max_over:
 				if len(col) != nrows:
-					raise JibValueError(f"Aggregation column has wrong length")
+					raise SerifValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				def max_func(vals, d=d):
 					clean = [v for v in vals if v is not None]
@@ -1523,7 +1523,7 @@ class Table(Vector):
 		if count_over:
 			for col in count_over:
 				if len(col) != nrows:
-					raise JibValueError(f"Aggregation column has wrong length")
+					raise SerifValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				aggregate_col(
 					col,
@@ -1535,7 +1535,7 @@ class Table(Vector):
 		if stdev_over:
 			for col in stdev_over:
 				if len(col) != nrows:
-					raise JibValueError(f"Aggregation column has wrong length")
+					raise SerifValueError(f"Aggregation column has wrong length")
 				d = col._underlying
 				
 				def stdev_func(vals, d=d):
@@ -1555,7 +1555,7 @@ class Table(Vector):
 		if apply is not None:
 			for agg_name, (col, func) in apply.items():
 				if len(col) != nrows:
-					raise JibValueError(f"Custom aggregation column '{agg_name}' has wrong length")
+					raise SerifValueError(f"Custom aggregation column '{agg_name}' has wrong length")
 				d = col._underlying
 				out = []
 				for key, row_indices in group_items:

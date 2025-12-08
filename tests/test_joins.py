@@ -1,7 +1,7 @@
 import pytest
-from jib import Vector
-from jib import Table
-from jib.errors import JibTypeError
+from serif import Vector
+from serif import Table
+from serif.errors import SerifTypeError
 
 
 def test_inner_join_basic():
@@ -286,8 +286,8 @@ def test_join_key_validation_missing_column():
 	left = Table({'id': [1, 2]})
 	right = Table({'id': [2, 3]})
     
-	from jib.errors import JibKeyError
-	with pytest.raises(JibKeyError):
+	from serif.errors import SerifKeyError
+	with pytest.raises(SerifKeyError):
 		left.inner_join(right, left_on='missing_col', right_on='id')
 
 
@@ -303,7 +303,7 @@ def test_join_with_computed_keys():
 	})
 	
 	# Float keys should be rejected due to precision issues
-	with pytest.raises(JibTypeError, match="Invalid join key dtype 'float'"):
+	with pytest.raises(SerifTypeError, match="Invalid join key dtype 'float'"):
 		left.inner_join(right, left_on=left['price'] * 1.08, right_on=right['price_with_tax'])
 
 

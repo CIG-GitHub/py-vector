@@ -1,7 +1,7 @@
 import pytest
 import warnings
-from jib import Table
-from jib import Vector
+from serif import Table
+from serif import Vector
 
 
 class TestAggregate:

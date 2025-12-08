@@ -1,7 +1,7 @@
 """Fingerprint change detection tests"""
 import pytest
-from jib import Vector
-from jib import Table
+from serif import Vector
+from serif import Table
 
 
 class TestBasicFingerprint:

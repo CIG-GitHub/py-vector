@@ -1,23 +1,23 @@
-class JibError(Exception):
-    """Base exception for jib library."""
+class SerifError(Exception):
+    """Base exception for serif library."""
     pass
 
 
-class JibKeyError(JibError, KeyError):
+class SerifKeyError(SerifError, KeyError):
     """Raised when a column/key is missing."""
     pass
 
 
-class JibTypeError(JibError, TypeError):
+class SerifTypeError(SerifError, TypeError):
     """Raised for invalid types in API calls."""
     pass
 
 
-class JibValueError(JibError, ValueError):
+class SerifValueError(SerifError, ValueError):
     """Raised for invalid values or mismatched lengths."""
     pass
 
 
-class JibIndexError(JibError, IndexError):
+class SerifIndexError(SerifError, IndexError):
     """Raised for invalid indexing operations."""
     pass
