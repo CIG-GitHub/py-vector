@@ -1,18 +1,18 @@
-# PyVector
+# jib
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-[![Tests](https://github.com/CIG-GitHub/py-vector/actions/workflows/tests.yml/badge.svg)](https://github.com/CIG-GitHub/py-vector/actions/workflows/tests.yml)
+[![Tests](https://github.com/CIG-GitHub/jib/actions/workflows/tests.yml/badge.svg)](https://github.com/CIG-GitHub/jib/actions/workflows/tests.yml)
 
-A clean, typed, composable data layer for Python, built on **PyVector** and **PyTable**.
+A clean, typed, composable data layer for Python, built on **Vector** and **Table**.
 
-PyVector provides the foundation; PyTable is your primary tool for readable data modeling and analysis workflows.
+Vector provides the foundation; Table is your primary tool for readable data modeling and analysis workflows.
 
 ## 30-Second Example
 
 ```python
-from py_vector import PyTable
+from jib import Table
 
 # Create a table with automatic column name sanitization
-t = PyTable({
+t = Table({
     "price ($)": [10, 20, 30],
     "quantity":  [4, 5, 6]
 })
@@ -35,7 +35,7 @@ t
 ## Real-World Example: Interactive CSV Exploration
 
 ```python
-from py_vector import read_csv
+from jib import read_csv
 
 t = read_csv("sales.csv")  # Messy column names? No problem.
 
@@ -66,17 +66,17 @@ t
 ## Installation
 
 ```bash
-pip install py-vector
+pip install jib
 ```
 
 Zero external dependencies. In a fresh environment:
 
 ```bash
 pip freeze
-# py-vector==0.x.y
+# jib==0.x.y
 ```
 
-## Why PyVector?
+## Why jib?
 
 - Explicit, predictable vector semantics
 - Tables compose cleanly from vectors
@@ -91,29 +91,29 @@ pip freeze
 ### Vectors: elementwise operations
 
 ```python
-from py_vector import PyVector
+from jib import Vector
 
-a = PyVector([1, 2, 3, 4, 5])
-b = PyVector([10, 20, 30, 40, 50])
+a = Vector([1, 2, 3, 4, 5])
+b = Vector([10, 20, 30, 40, 50])
 
-a + b           # PyVector([11, 22, 33, 44, 55])
-a * 2           # PyVector([2, 4, 6, 8, 10])
-a > 3           # PyVector([False, False, False, True, True])
+a + b           # Vector([11, 22, 33, 44, 55])
+a * 2           # Vector([2, 4, 6, 8, 10])
+a > 3           # Vector([False, False, False, True, True])
 ```
 
 ### Tables: compose vectors with `>>`
 
 ```python
-from py_vector import PyTable
+from jib import Table
 
 # Column names auto-sanitize to valid Python attributes
-t = PyTable({
+t = Table({
     "first name": [1, 2, 3],
     "price ($)":  [10, 20, 30]
 })
 
-t.first_name    # PyVector([1, 2, 3])
-t.price         # PyVector([10, 20, 30])
+t.first_name    # Vector([1, 2, 3])
+t.price         # Vector([10, 20, 30])
 
 # Add columns with >>= (recommended)
 t >>= (t.first_name * t.price).rename("total")
@@ -145,8 +145,8 @@ filtered
 ### Joins
 
 ```python
-customers = PyTable({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
-scores = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
+customers = Table({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
+scores = Table({'id': [2, 3, 4], 'score': [85, 90, 95]})
 
 result = customers.inner_join(scores, left_on='id', right_on='id')
 
@@ -163,7 +163,7 @@ result
 ### Aggregations
 
 ```python
-t = PyTable({'customer': ['A', 'B', 'A'], 'amount': [100, 200, 150]})
+t = Table({'customer': ['A', 'B', 'A'], 'amount': [100, 200, 150]})
 
 result = t.aggregate(
     over=t.customer,
@@ -188,10 +188,10 @@ result
 
 ```python
 # Dictionary syntax: quick and familiar
-t = PyTable({'id': range(100), 'value': [x**2 for x in range(100)]})
+t = Table({'id': range(100), 'value': [x**2 for x in range(100)]})
 
-# Or compose from vectors: showcases PyVector's design philosophy
-a = PyVector(range(100), name='id')
+# Or compose from vectors: showcases Vector's design philosophy
+a = Vector(range(100), name='id')
 t = a >> (a**2).rename('value')
 
 t
@@ -218,7 +218,7 @@ Head/tail preview + type annotations + dimensions—no need for `.head()`, `.inf
 Column names are sanitized to valid Python identifiers so you can access them with dot notation:
 
 ```python
-t = PyTable({"2023-Q1 Revenue ($M)": [1, 2, 3]})
+t = Table({"2023-Q1 Revenue ($M)": [1, 2, 3]})
 t.c2023_q1_revenue_m  # Deterministic, predictable access
 ```
 
@@ -231,14 +231,14 @@ Unnamed columns use system names: `t.col0_`, `t.col1_`, etc.
 
 ### Typed Subclasses
 
-PyVector auto-creates typed subclasses with method proxying:
+Vector auto-creates typed subclasses with method proxying:
 
 ```python
 from datetime import date
 
-dates = PyVector([date(2023, 6, 29), date(2024, 1, 2), date(2024, 12, 28)])
+dates = Vector([date(2023, 6, 29), date(2024, 1, 2), date(2024, 12, 28)])
 dates += 5       # Add 5 days to each date
-dates.year       # PyVector([2023, 2024, 2025]) - one crossed the year boundary!
+dates.year       # Vector([2023, 2024, 2025]) - one crossed the year boundary!
 ```
 
 Works for `int`, `float`, `str`, `date` types.
@@ -257,7 +257,7 @@ mask = (v > threshold)
 result = v[mask]
 ```
 
-### Operator overloading: avoid `.index()` on PyVector lists
+### Operator overloading: avoid `.index()` on Vector lists
 
 ```python
 # WRONG: invokes elementwise equality
@@ -275,7 +275,7 @@ for idx, col in enumerate(cols):
 `None` is excluded from aggregations but counted in `len()`:
 
 ```python
-v = PyVector([10, None, 20])
+v = Vector([10, None, 20])
 v.sum()   # 30 (None excluded)
 len(v)    # 3 (None counted)
 ```
@@ -283,7 +283,7 @@ len(v)    # 3 (None counted)
 ## Just Write Python
 
 Not every task fits neatly into a vectorized expression.
-When a loop is the clearest approach, PyVector keeps it efficient.
+When a loop is the clearest approach, jib keeps it efficient.
 
 `for row in table:` is fully supported and stays lightweight, so you can use
 whichever style makes the code easiest to understand.
@@ -291,7 +291,7 @@ whichever style makes the code easiest to understand.
 
 ## Design Philosophy
 
-PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
+jib makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
 
 **What you get:**
 - Readable, debuggable code
@@ -300,7 +300,7 @@ PyVector makes a **strategic choice**: clarity and workflow ergonomics over raw 
 - Zero dependencies
 - O(1) fingerprinting for change detection
 
-**When to use PyVector:**
+**When to use jib:**
 - Modeling-scale data (10K–1M rows)
 - Correctness and maintainability matter most
 - Interactive workflows (Jupyter notebooks, REPL)
