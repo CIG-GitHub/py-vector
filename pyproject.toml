@@ -8,20 +8,33 @@ version = "0.1.0"
 description = "A Pythonic, zero-dependency vector and table library for interactive data exploration"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
+
 authors = [
-    {name = "Ryan Larsen"}
+    { name = "Ryan Larsen", email = "ryan.e.larsen@gmail.com" }
 ]
-keywords = ["vector", "table", "data", "analysis", "dataframe", "csv"]
+
+keywords = [
+    "vector",
+    "table",
+    "data",
+    "analysis",
+    "dataframe",
+    "csv"
+]
+
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering",
 ]
@@ -31,11 +44,11 @@ Homepage = "https://github.com/CIG-GitHub/jib"
 Repository = "https://github.com/CIG-GitHub/jib"
 "Bug Tracker" = "https://github.com/CIG-GitHub/jib/issues"
 
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[project.optional-dependencies]
-dev = ["pytest>=7.0"]
