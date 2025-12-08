@@ -5,22 +5,22 @@
 ```bash
 pytest -q                    # Run all tests
 pytest testing/test_*.py -v  # Verbose output
-pytest testing/test_pytable.py::TestJoins -v  # Run specific test class
+pytest testing/test_Table.py::TestJoins -v  # Run specific test class
 ```
 
 ## Project Structure
 
 ```
-py-vector/
-├── py_vector.py           # Core PyVector class and typed subclasses
-├── py_table.py            # PyTable (joins, aggregate, window)
+jib/
+├── jib.py           # Core Vector class and typed subclasses
+├── py_table.py            # Table (joins, aggregate, window)
 ├── _errors.py             # Exception types
 ├── _typeutils.py          # Helper utilities
 ├── _alias_tracker.py      # Alias tracking implementation
 ├── __init__.py            # Public API exports
 ├── testing/               # Test suite (pytest)
-│   ├── test_pyvector_*.py
-│   ├── test_pytable.py
+│   ├── test_Vector_*.py
+│   ├── test_Table.py
 │   ├── test_joins.py
 │   ├── test_aggregate_window.py
 │   └── ...
@@ -32,22 +32,22 @@ py-vector/
 
 ## Key Modules
 
-### `py_vector.py`
-- Core `PyVector` class with typed subclasses (`_PyInt`, `_PyFloat`, `_PyString`, `_PyDate`)
+### `jib.py`
+- Core `Vector` class with typed subclasses (`_Int`, `_Float`, `_String`, `_Date`)
 - Arithmetic operations and operator overloading
 - Fingerprinting and alias tracking
 - Elementwise operations
 
 ### `py_table.py`
-- `PyTable` class (vector-of-vectors)
+- `Table` class (vector-of-vectors)
 - Join operations (inner, left, full outer)
 - Aggregate and window functions
 - Column access and sanitization
 
 ### `_errors.py`
 - Custom exception hierarchy
-- `PyVectorError` base class
-- Specific exceptions: `PyVectorKeyError`, `PyVectorValueError`, `PyVectorTypeError`, `PyVectorIndexError`
+- `VectorError` base class
+- Specific exceptions: `VectorKeyError`, `VectorValueError`, `VectorTypeError`, `VectorIndexError`
 
 ### `_alias_tracker.py`
 - Identity-based alias tracking via weakref registry
@@ -68,4 +68,5 @@ py-vector/
 
 ## Design Philosophy
 
-See `docs/design-philosophy.md` for detailed rationale behind PyVector's design decisions.
+See `docs/design-philosophy.md` for detailed rationale behind Vector's design decisions.
+

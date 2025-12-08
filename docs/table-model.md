@@ -1,12 +1,12 @@
 # Table Model
 
-A PyTable is a list of equal-length vectors.  
+A Table is a list of equal-length vectors.  
 It is column-major by design.
 
 ## 1. Construction
 Tables are built via:
 - column stacking: `v1 >> v2 >> v3`
-- explicit constructor: `PyTable([v1, v2, ...])`
+- explicit constructor: `Table([v1, v2, ...])`
 - no row-based construction API is provided
 
 ## 2. Access
@@ -37,3 +37,4 @@ Operations such as:
 ## 6. Combining tables
 `>>` stacks columns, not rows.  
 Row-wise combining requires explicit user intent.
+

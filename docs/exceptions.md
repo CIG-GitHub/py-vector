@@ -1,77 +1,77 @@
 # Exception Handling
 
-PyVector raises specific exception types for clear error handling.
+Vector raises specific exception types for clear error handling.
 
 ## Exception Types
 
-### PyVectorKeyError
+### JibKeyError
 Subclass of `KeyError`. Raised when:
 - Column not found in table
 - Key missing in dictionary operations
 
 ```python
-from py_vector import PyVectorKeyError
+from jib import JibKeyError
 
 try:
     column = table['missing_column']
-except PyVectorKeyError:
+except JibKeyError:
     print("Column not found")
 ```
 
-### PyVectorValueError
+### JibValueError
 Subclass of `ValueError`. Raised when:
 - Invalid values provided
 - Mismatched lengths in operations
 - Invalid join key configurations
 
 ```python
-from py_vector import PyVectorValueError
+from jib import JibValueError
 
 try:
     table.inner_join(other, left_on=['a', 'b'], right_on=['x'])
-except PyVectorValueError:
+except JibValueError:
     print("Mismatched join key lengths")
 ```
 
-### PyVectorTypeError
+### JibTypeError
 Subclass of `TypeError`. Raised when:
 - Invalid types provided to type-safe vectors
 - Type mismatches in operations
 
 ```python
-from py_vector import PyVectorTypeError
+from jib import JibTypeError
 
 try:
     result = typesafe_int_vector + "string"
-except PyVectorTypeError:
+except JibTypeError:
     print("Type mismatch")
 ```
 
-### PyVectorIndexError
+### JibIndexError
 Subclass of `IndexError`. Raised when:
 - Out-of-bounds indexing
 - Invalid slice operations
 
 ```python
-from py_vector import PyVectorIndexError
+from jib import JibIndexError
 
 try:
     value = vector[1000]  # index out of range
-except PyVectorIndexError:
+except JibIndexError:
     print("Index out of bounds")
 ```
 
 ## Broad Exception Catching
 
-All custom exceptions inherit from `PyVectorError`:
+All custom exceptions inherit from `JibError`:
 
 ```python
-from py_vector import PyVectorError
+from jib import JibError
 
 try:
     # ... operations ...
-except PyVectorError:
-    # Catch all PyVector-specific errors
+except JibError:
+    # Catch all Vector-specific errors
     pass
 ```
 
@@ -80,3 +80,5 @@ except PyVectorError:
 `table.missing_column` raises `AttributeError` (Pythonic behavior). 
 
 Use `table['col']` for dictionary-style access or check existence with `'col' in table._underlying`.
+
+

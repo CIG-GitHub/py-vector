@@ -19,10 +19,11 @@
 - **Alias tracking:** O(1) checks via weakref registry
 
 ## Rule of Thumb
-PyVector handles **10K–1M rows** comfortably. For 10M+ rows or compute-heavy numerical work, use NumPy/Polars.
+Vector handles **10K–1M rows** comfortably. For 10M+ rows or compute-heavy numerical work, use NumPy/Polars.
 
 ## Performance Profile
 - **Sweet spot:** Modeling-scale data (thousands to low millions of rows)
 - Optimized for **workflow velocity**, not raw compute throughput
 - O(1) fingerprinting enables efficient change detection and caching
-- Future "fast back-end" possibility without changing the PyVector UX
+- Future "fast back-end" possibility without changing the Vector UX
+

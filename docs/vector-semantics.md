@@ -1,6 +1,6 @@
 # Vector Semantics
 
-A PyVector represents:
+A Vector represents:
 - a one-dimensional, fixed-length, single-dtype sequence  
 - supporting elementwise operations  
 - with consistent indexing, slicing, masking, and repr behavior  
@@ -45,3 +45,4 @@ Vectors show:
 - shape + dtype footer
 
 Vertical display emphasizes table-first design.
+

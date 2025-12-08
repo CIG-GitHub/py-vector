@@ -53,3 +53,4 @@ col_a   col_b
 - it should never attempt to show full large data structures  
 - it must remain stable across versions  
 - output should resemble notebook head/tail conventions  
+

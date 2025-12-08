@@ -2,26 +2,26 @@
 
 ## Alias Tracking
 
-PyVector prevents accidental shared-state bugs through automatic copy-on-write.
+Vector prevents accidental shared-state bugs through automatic copy-on-write.
 
 ### How It Works
 
 ```python
-a = PyVector([1, 2, 3])
+a = Vector([1, 2, 3])
 b = a  # b shares underlying tuple with a
 
 # Attempting mutation triggers copy-on-write
 b[0] = 99  # Creates new tuple, a unchanged
-print(a)   # PyVector([1, 2, 3])
-print(b)   # PyVector([99, 2, 3])
+print(a)   # Vector([1, 2, 3])
+print(b)   # Vector([99, 2, 3])
 ```
 
-PyVector tracks tuple identity using a weakref registry. If multiple vectors share the same underlying tuple, mutations trigger automatic copies to prevent aliasing bugs.
+Vector tracks tuple identity using a weakref registry. If multiple vectors share the same underlying tuple, mutations trigger automatic copies to prevent aliasing bugs.
 
 ### When Copies Happen
 
-- **Mutation of shared data:** If two PyVectors reference the same tuple, mutation creates a new tuple
-- **Table construction:** PyTable performs deep copy to prevent external aliasing
+- **Mutation of shared data:** If two Vectors reference the same tuple, mutation creates a new tuple
+- **Table construction:** Table performs deep copy to prevent external aliasing
 - **Explicit operations:** Methods like `.copy()` always create new data
 
 ## Fingerprints
@@ -31,7 +31,7 @@ Fingerprints enable **O(1) change detection** without full data comparisons.
 ### Basic Usage
 
 ```python
-v = PyVector([1, 2, 3])
+v = Vector([1, 2, 3])
 fp1 = v.fingerprint()
 
 v[1] = 10
@@ -89,3 +89,4 @@ Fingerprints use a **rolling hash** maintained incrementally on mutations. This 
 - Fingerprints detect **data changes**, not structural equivalence
 - Two vectors with identical content may have different fingerprints if constructed differently
 - Use `==` for value equality, `.fingerprint()` for change detection
+

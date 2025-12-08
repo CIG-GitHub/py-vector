@@ -2,15 +2,15 @@
 
 ## Joins
 
-PyTable supports three join types: `inner_join`, `join` (left join), and `full_join`.
+Table supports three join types: `inner_join`, `join` (left join), and `full_join`.
 
 ### Inner Join
 
 Returns only rows with matching keys in both tables.
 
 ```python
-left = PyTable({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
-right = PyTable({'id': [2, 3, 4], 'score': [85, 90, 95]})
+left = Table({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
+right = Table({'id': [2, 3, 4], 'score': [85, 90, 95]})
 
 result = left.inner_join(right, left_on='id', right_on='id')
 # Returns rows for id 2 and 3
@@ -64,7 +64,7 @@ result = left.inner_join(right,
 Returns **one row per group**.
 
 ```python
-t = PyTable({
+t = Table({
     'customer': ['A', 'B', 'A', 'C', 'B'],
     'amount': [100, 200, 150, 300, 250]
 })
@@ -126,8 +126,8 @@ result = t.aggregate(
 
 ```python
 # Join sales and customers, then aggregate by region
-sales = PyTable({'customer_id': [1, 2, 1, 3], 'amount': [100, 200, 150, 300]})
-customers = PyTable({'id': [1, 2, 3], 'region': ['East', 'West', 'East']})
+sales = Table({'customer_id': [1, 2, 1, 3], 'amount': [100, 200, 150, 300]})
+customers = Table({'id': [1, 2, 3], 'region': ['East', 'West', 'East']})
 
 joined = sales.join(customers, left_on='customer_id', right_on='id')
 result = joined.aggregate(
@@ -139,14 +139,15 @@ result = joined.aggregate(
 ### Window for Running Totals
 
 ```python
-t = PyTable({
+t = Table({
     'date': [1, 2, 3, 4, 5],
     'sales': [100, 200, 150, 300, 250]
 })
 
 # Cumulative sum (window over entire table)
 result = t.window(
-    over=PyVector([1] * len(t)),  # Single partition
+    over=Vector([1] * len(t)),  # Single partition
     sum_over=t.sales
 )
 ```
+

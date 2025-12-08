@@ -1,9 +1,9 @@
-# PyVector Design Invariants
+# Vector Design Invariants
 
 These rules define the contract of the library.  
 Breaking any of them requires updating this file and providing strong rationale.
 
-## 1. A PyVector has exactly one dtype
+## 1. A Vector has exactly one dtype
 All elements share a single Python-native type:
 - int  
 - float  
@@ -14,9 +14,9 @@ All elements share a single Python-native type:
 No mixed types.  
 No implicit coercion except Python-standard numeric coercions.
 
-## 2. A PyTable is a list of column vectors
+## 2. A Table is a list of column vectors
 A table is:
-- a list of equal-length PyVectors  
+- a list of equal-length Vectors  
 - each vector is a column  
 - row-major access is derived, not stored  
 - nested tables are never allowed
@@ -71,3 +71,4 @@ No auto-joins.
 No auto-broadcasting across columns.
 
 All joins/merges must be explicit.
+
