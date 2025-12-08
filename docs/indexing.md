@@ -11,7 +11,7 @@ remaining expressive, fast, and mathematically clear.
 
 ## 1. Vector Indexing
 
-A Vector supports three forms of indexing:
+A Vector has three primary forms of indexing:
 
 ### 1.1 Integer index
 
