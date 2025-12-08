@@ -1,10 +1,10 @@
 import pytest
-from py_vector import PyVector, PyTable
+from jib import Vector, Table
 
 
 def test_stale_column_name_after_vector_rename():
 	"""Test that accessing old column name via dot-access fails after rename"""
-	t = PyTable({
+	t = Table({
 		'old_name': [1, 2, 3],
 		'other': [4, 5, 6]
 	})
@@ -22,7 +22,7 @@ def test_stale_column_name_after_vector_rename():
 
 def test_stale_column_name_after_multiple_renames():
 	"""Test that multiple renames invalidate previous names"""
-	t = PyTable({
+	t = Table({
 		'first': [1, 2, 3]
 	})
 	
@@ -43,7 +43,7 @@ def test_stale_column_name_after_multiple_renames():
 
 def test_stale_column_name_subscript_access():
 	"""Test that subscript access with old name also fails"""
-	t = PyTable({
+	t = Table({
 		'old': [1, 2, 3]
 	})
 	
@@ -59,7 +59,7 @@ def test_stale_column_name_subscript_access():
 
 def test_multiple_columns_rename_independently():
 	"""Test that renaming one column doesn't affect access to others"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6],
 		'c': [7, 8, 9]
@@ -82,7 +82,7 @@ def test_multiple_columns_rename_independently():
 
 def test_rename_then_rename_column_method():
 	"""Test interaction between vector.rename() and table.rename_column()"""
-	t = PyTable({
+	t = Table({
 		'col1': [1, 2, 3],
 		'col2': [4, 5, 6]
 	})
@@ -106,7 +106,7 @@ def test_rename_then_rename_column_method():
 
 def test_rename_case_sensitivity():
 	"""Test that renamed columns respect case changes"""
-	t = PyTable({
+	t = Table({
 		'lowercase': [1, 2, 3]
 	})
 	
@@ -121,3 +121,6 @@ def test_rename_case_sensitivity():
 	
 	# Lowercase version of new name should also work (case-insensitive fallback)
 	assert list(t.uppercase) == [1, 2, 3]
+
+
+

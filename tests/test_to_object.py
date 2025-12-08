@@ -1,15 +1,15 @@
 """
-Test PyVector.to_object() conversion method.
+Test Vector.to_object() conversion method.
 """
 
 import pytest
-from py_vector import PyVector
-from py_vector.errors import PyVectorTypeError
+from jib import Vector
+from jib.errors import JibTypeError
 
 
 def test_to_object_basic():
 	"""Test converting int vector to object vector"""
-	a = PyVector([1, 2, 3, 4])
+	a = Vector([1, 2, 3, 4])
 	assert a._dtype.kind is int
 	
 	b = a.to_object()
@@ -19,7 +19,7 @@ def test_to_object_basic():
 
 def test_to_object_allows_mixed_assignment():
 	"""Test that object vector allows mixed type assignment"""
-	a = PyVector([1, 2, 3, 4])
+	a = Vector([1, 2, 3, 4])
 	a = a.to_object()
 	
 	a[2] = "ryan"
@@ -30,28 +30,28 @@ def test_to_object_allows_mixed_assignment():
 
 def test_to_object_preserves_name():
 	"""Test that to_object preserves vector name"""
-	a = PyVector([1, 2, 3], name="mydata")
+	a = Vector([1, 2, 3], name="mydata")
 	b = a.to_object()
 	assert b._name == "mydata"
 
 
 def test_to_object_preserves_display_as_row():
 	"""Test that to_object preserves display_as_row setting"""
-	a = PyVector([1, 2, 3], as_row=True)
+	a = Vector([1, 2, 3], as_row=True)
 	b = a.to_object()
 	assert b._display_as_row == True
 
 
 def test_int_vector_rejects_string():
 	"""Test that int vector rejects string assignment"""
-	a = PyVector([1, 2, 3, 4])
-	with pytest.raises(PyVectorTypeError, match="Cannot set str in int vector"):
+	a = Vector([1, 2, 3, 4])
+	with pytest.raises(JibTypeError, match="Cannot set str in int vector"):
 		a[2] = "ryan"
 
 
 def test_dtype_object_on_creation():
 	"""Test creating object vector directly with dtype parameter"""
-	a = PyVector([1, 2, 3, 4], dtype=object)
+	a = Vector([1, 2, 3, 4], dtype=object)
 	assert a._dtype.kind is object
 	a[2] = "test"
 	assert a[2] == "test"
@@ -59,7 +59,7 @@ def test_dtype_object_on_creation():
 
 def test_dtype_string_on_creation():
 	"""Test creating object vector with dtype as string"""
-	a = PyVector([1, 2, 3, 4], dtype=object)  # Use object type, not string
+	a = Vector([1, 2, 3, 4], dtype=object)  # Use object type, not string
 	assert a._dtype.kind is object
 	a[2] = "test"
 	assert a[2] == "test"
@@ -70,7 +70,7 @@ def test_to_object_idempotent():
 	import warnings
 	with warnings.catch_warnings():
 		warnings.simplefilter("ignore", UserWarning)
-		a = PyVector([1, "two", 3.0])
+		a = Vector([1, "two", 3.0])
 	assert a._dtype.kind is object
 	
 	b = a.to_object()
@@ -80,7 +80,7 @@ def test_to_object_idempotent():
 
 def test_to_object_with_string_vector():
 	"""Test converting string vector to object"""
-	a = PyVector(["a", "b", "c"])
+	a = Vector(["a", "b", "c"])
 	assert a._dtype.kind is str
 	
 	b = a.to_object()
@@ -90,9 +90,12 @@ def test_to_object_with_string_vector():
 
 def test_to_object_with_float_vector():
 	"""Test converting float vector to object"""
-	a = PyVector([1.5, 2.5, 3.5])
+	a = Vector([1.5, 2.5, 3.5])
 	assert a._dtype.kind is float
 	
 	b = a.to_object()
 	assert b._dtype.kind is object
 	assert list(b) == [1.5, 2.5, 3.5]
+
+
+
