@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "py-vector"
+name = "jib"
 version = "0.1.0"
 description = "A Pythonic, zero-dependency vector and table library for interactive data exploration"
 readme = "README.md"
@@ -27,9 +27,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CIG-GitHub/py-vector"
-Repository = "https://github.com/CIG-GitHub/py-vector"
-"Bug Tracker" = "https://github.com/CIG-GitHub/py-vector/issues"
+Homepage = "https://github.com/CIG-GitHub/jib"
+Repository = "https://github.com/CIG-GitHub/jib"
+"Bug Tracker" = "https://github.com/CIG-GitHub/jib/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
