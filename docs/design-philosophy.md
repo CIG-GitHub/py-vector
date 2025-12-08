@@ -1,16 +1,16 @@
 # Serif Design Philosophy
 
-Jib is intentionally small, predictable, and Pythonic.  
+Serif is intentionally small, predictable, and Pythonic.  
 Its goal is not to compete with full-fledged analytics engines, but to provide a clean, minimal foundation for vectors, tables, and lightweight transformations that integrate naturally with Python and the UI systems built on top of it.
 
-This document outlines the core principles that guide the design of Jib.  
+This document outlines the core principles that guide the design of Serif.  
 Any future feature or contribution should be evaluated against these principles.
 
 ---
 
 ## **Principle 1 — Minimal Surface Area; Maximal Composability**
 
-Jib prioritizes a small, understandable set of primitives rather than an ever-expanding API.  
+Serif prioritizes a small, understandable set of primitives rather than an ever-expanding API.  
 Every additional method or behavior must *earn its place* by providing clear value and interacting cleanly with existing semantics.
 
 - Prefer a single, general mechanism over multiple convenience wrappers.
@@ -18,7 +18,7 @@ Every additional method or behavior must *earn its place* by providing clear val
 - Avoid implicit magic or hidden transformations.
 - If a feature can be built from existing pieces, it probably should be.
 
-Jib's strength comes from being small, predictable, and easy to reason about.
+Serif's strength comes from being small, predictable, and easy to reason about.
 
 ---
 
@@ -38,7 +38,7 @@ This ensures that Vector has a coherent mathematical foundation, and that tables
 
 ## **Principle 3 — Pythonic by Default; Strict Where Ambiguity Creates Risk**
 
-Jib follows Python’s scalar and operator semantics wherever they are intuitive, predictable, and safe. This ensures that vectorized expressions behave naturally for users who already understand Python.
+Serif follows Python’s scalar and operator semantics wherever they are intuitive, predictable, and safe. This ensures that vectorized expressions behave naturally for users who already understand Python.
 
 However, when Python’s legacy behaviors lead to surprising or harmful outcomes—particularly in contexts involving boolean masks, filtering, or data selection—the library introduces minimal, targeted restrictions.
 
@@ -54,7 +54,7 @@ The goal is not to redefine Python, but to inherit its behaviors where they make
 
 ## **Principle 4 — Explicit Is Better Than Implicit**
 
-Ambiguity leads to bugs. Jib avoids “cleverness” that conceals meaning.
+Ambiguity leads to bugs. Serif avoids “cleverness” that conceals meaning.
 
 - No automatic type inference beyond what Python already does.
 - No silent coercions except those Python performs natively.
@@ -62,7 +62,7 @@ Ambiguity leads to bugs. Jib avoids “cleverness” that conceals meaning.
 - Masking is always explicit.
 - Indexing rules are strict, predictable, and documented.
 
-This keeps Jib stable as datasets grow and transforms become more complex.
+This keeps Serif stable as datasets grow and transforms become more complex.
 
 ---
 
@@ -97,14 +97,14 @@ This includes:
 - type promotion,
 - and table-column alignment.
 
-Jib preserves semantics consistently regardless of scale.  
+Serif preserves semantics consistently regardless of scale.  
 Performance optimizations should not introduce semantic differences.
 
 ---
 
 ## **Principle 7 — Fewer Concepts, Better Concepts**
 
-Whenever possible, Jib favors:
+Whenever possible, Serif favors:
 
 - one way to do a thing,
 - orthogonal building blocks,
@@ -117,7 +117,7 @@ If adding a feature forces the user to learn another “mini-language” to unde
 
 # Summary
 
-Jib philosophy is straightforward:
+Serif philosophy is straightforward:
 
 - Keep the system small, composable, and Pythonic.  
 - Let vectors define table behavior.  

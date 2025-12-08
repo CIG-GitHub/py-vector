@@ -2,7 +2,7 @@
 
 ## Alias Tracking
 
-Jib prevents accidental shared-state bugs through automatic copy-on-write.
+Serif prevents accidental shared-state bugs through automatic copy-on-write.
 
 ### How It Works
 
@@ -16,7 +16,7 @@ print(a)   # Vector([1, 2, 3])
 print(b)   # Vector([99, 2, 3])
 ```
 
-Jib tracks tuple identity using a weakref registry. If multiple vectors share the same underlying tuple, mutations trigger automatic copies to prevent aliasing bugs.
+Serif tracks tuple identity using a weakref registry. If multiple vectors share the same underlying tuple, mutations trigger automatic copies to prevent aliasing bugs.
 
 ### When Copies Happen
 

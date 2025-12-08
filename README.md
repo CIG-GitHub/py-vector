@@ -1,4 +1,4 @@
-# jib
+# serif
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 [![Tests](https://github.com/CIG-GitHub/serif/actions/workflows/tests.yml/badge.svg)](https://github.com/CIG-GitHub/serif/actions/workflows/tests.yml)
 
