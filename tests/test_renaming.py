@@ -1,11 +1,11 @@
 import pytest
-from py_vector import PyVector
-from py_vector import PyTable
+from jib import Vector
+from jib import Table
 
 
-def test_pyvector_rename():
-	"""Test that PyVector.rename() changes the name"""
-	v = PyVector([1, 2, 3], name="old_name")
+def test_Vector_rename():
+	"""Test that Vector.rename() changes the name"""
+	v = Vector([1, 2, 3], name="old_name")
 	assert v._name == "old_name"
 	
 	result = v.rename("new_name")
@@ -13,25 +13,25 @@ def test_pyvector_rename():
 	assert result is v  # Returns self for chaining
 
 
-def test_pyvector_rename_chaining():
+def test_Vector_rename_chaining():
 	"""Test that rename returns self for method chaining"""
-	v = PyVector([1, 2, 3], name="original")
+	v = Vector([1, 2, 3], name="original")
 	v2 = v.rename("renamed").copy()
 	
 	assert v._name == "renamed"
 	assert v2._name == "renamed"
 
 
-def test_pyvector_rename_to_none():
+def test_Vector_rename_to_none():
 	"""Test that we can clear a name with rename(None)"""
-	v = PyVector([1, 2, 3], name="has_name")
+	v = Vector([1, 2, 3], name="has_name")
 	v.rename(None)
 	assert v._name is None
 
 
-def test_pytable_rename_column():
-	"""Test renaming a single column in PyTable"""
-	t = PyTable({
+def test_Table_rename_column():
+	"""Test renaming a single column in Table"""
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6],
 		'c': [7, 8, 9]
@@ -49,9 +49,9 @@ def test_pytable_rename_column():
 		t['a']
 
 
-def test_pytable_rename_column_not_found():
+def test_Table_rename_column_not_found():
 	"""Test that renaming a non-existent column raises KeyError"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6]
 	})
@@ -60,9 +60,9 @@ def test_pytable_rename_column_not_found():
 		t.rename_column('z', 'zeta')
 
 
-def test_pytable_rename_columns_dict():
+def test_Table_rename_columns_dict():
 	"""Test renaming multiple columns at once"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6],
 		'c': [7, 8, 9]
@@ -76,9 +76,9 @@ def test_pytable_rename_columns_dict():
 	assert result is t  # Returns self for chaining
 
 
-def test_pytable_rename_columns_partial():
+def test_Table_rename_columns_partial():
 	"""Test renaming only some columns"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6],
 		'c': [7, 8, 9]
@@ -91,9 +91,9 @@ def test_pytable_rename_columns_partial():
 	assert t['gamma']._name == 'gamma'
 
 
-def test_pytable_rename_columns_not_found():
+def test_Table_rename_columns_not_found():
 	"""Test that renaming a non-existent column raises KeyError"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6]
 	})
@@ -102,9 +102,9 @@ def test_pytable_rename_columns_not_found():
 		t.rename_columns(['a', 'z'], ['alpha', 'zeta'])
 
 
-def test_pytable_rename_columns_atomic():
+def test_Table_rename_columns_atomic():
 	"""Test that rename_columns is atomic - either all succeed or none"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6],
 		'c': [7, 8, 9]
@@ -124,9 +124,9 @@ def test_pytable_rename_columns_atomic():
 	assert list(t['b']) == [4, 5, 6]
 
 
-def test_pytable_rename_columns_chaining():
+def test_Table_rename_columns_chaining():
 	"""Test that rename_columns returns self for chaining"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6]
 	})
@@ -138,13 +138,13 @@ def test_pytable_rename_columns_chaining():
 	assert t['beta']._name == 'beta'
 
 
-def test_pytable_duplicate_column_names():
+def test_Table_duplicate_column_names():
 	"""Test the horrible real-world condition: duplicate column names"""
 	# Create table with duplicate column names
-	col1 = PyVector([1, 2, 3], name='a')
-	col2 = PyVector([4, 5, 6], name='a')
-	col3 = PyVector([7, 8, 9], name='b')
-	t = PyTable([col1, col2, col3])
+	col1 = Vector([1, 2, 3], name='a')
+	col2 = Vector([4, 5, 6], name='a')
+	col3 = Vector([7, 8, 9], name='b')
+	t = Table([col1, col2, col3])
 	
 	# Should have two columns named 'a' and one named 'b'
 	assert t._underlying[0]._name == 'a'
@@ -165,13 +165,13 @@ def test_pytable_duplicate_column_names():
 	assert list(t['a']) == [4, 5, 6]  # Gets the remaining 'a'
 
 
-def test_pytable_rename_all_duplicates():
+def test_Table_rename_all_duplicates():
 	"""Test renaming ALL columns with duplicate names"""
 	# Create table with duplicate column names
-	col1 = PyVector([1, 2, 3], name='a')
-	col2 = PyVector([4, 5, 6], name='a')
-	col3 = PyVector([7, 8, 9], name='a')
-	t = PyTable([col1, col2, col3])
+	col1 = Vector([1, 2, 3], name='a')
+	col2 = Vector([4, 5, 6], name='a')
+	col3 = Vector([7, 8, 9], name='a')
+	t = Table([col1, col2, col3])
 	
 	# All three columns named 'a'
 	assert all(c._name == 'a' for c in t._underlying)
@@ -185,13 +185,13 @@ def test_pytable_rename_all_duplicates():
 	assert t._underlying[2]._name == 'z'
 
 
-def test_pytable_rename_duplicate_columns_separately():
+def test_Table_rename_duplicate_columns_separately():
 	"""Test renaming duplicate columns to different names using parallel sequences"""
 	# Create table with duplicate column names
-	col1 = PyVector([1, 2, 3], name='data')
-	col2 = PyVector([4, 5, 6], name='data')
-	col3 = PyVector([7, 8, 9], name='label')
-	t = PyTable([col1, col2, col3])
+	col1 = Vector([1, 2, 3], name='data')
+	col2 = Vector([4, 5, 6], name='data')
+	col3 = Vector([7, 8, 9], name='label')
+	t = Table([col1, col2, col3])
 	
 	# We want to rename both 'data' columns to different names
 	# This is where parallel lists shine
@@ -207,9 +207,9 @@ def test_pytable_rename_duplicate_columns_separately():
 	assert list(t['label']) == [7, 8, 9]
 
 
-def test_pytable_getattr_after_rename():
+def test_Table_getattr_after_rename():
 	"""Test that __getattr__ works after renaming"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6]
 	})
@@ -229,7 +229,7 @@ def test_pytable_getattr_after_rename():
 
 def test_rename_preserves_data():
 	"""Test that renaming doesn't affect the data"""
-	v = PyVector([1, 2, 3], name="old")
+	v = Vector([1, 2, 3], name="old")
 	original_data = list(v)
 	
 	v.rename("new")
@@ -238,9 +238,9 @@ def test_rename_preserves_data():
 	assert v._name == "new"
 
 
-def test_pytable_rename_preserves_data():
+def test_Table_rename_preserves_data():
 	"""Test that renaming columns doesn't affect the data"""
-	t = PyTable({
+	t = Table({
 		'a': [1, 2, 3],
 		'b': [4, 5, 6]
 	})
@@ -252,3 +252,6 @@ def test_pytable_rename_preserves_data():
 	
 	assert list(t['x']) == original_a
 	assert list(t['y']) == original_b
+
+
+

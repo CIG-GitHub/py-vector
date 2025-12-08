@@ -1,6 +1,6 @@
-# PyVector Rationale
+# Vector Rationale
 
-PyVector exists to provide a clean, strict, and Python-native foundation for
+Vector exists to provide a clean, strict, and Python-native foundation for
 working with vectors, tables, and multi-dimensional structures without the
 complexity, ambiguity, or historical burden of existing dataframe libraries.
 
@@ -22,19 +22,19 @@ Python lists are row-major, but real-world data workflows are column-major:
 - SQL tables are column-defined
 - analytics operate column-wise (mean, stdev, mask, sort)
 
-PyVector stores tables as a list of vectors, one per column.  
+Vector stores tables as a list of vectors, one per column.  
 This aligns with actual data usage patterns and produces simpler, cleaner
 semantics.
 
 ## 3. Predictability over performance
-PyVector values:
+Vector values:
 - correctness
 - clarity
 - obviousness
 - exploration speed
 
 …over micro-optimized performance.  
-Heavy workloads can migrate to Polars/Arrow; PyVector is for the exploratory,
+Heavy workloads can migrate to Polars/Arrow; Vector is for the exploratory,
 expressive, "human-scale" layer.
 
 ## 4. Unambiguous operations
@@ -47,7 +47,7 @@ Names never mutate due to operations.
 This reduces surprises and keeps the mental model coherent.
 
 ## 5. Composability into larger systems
-PyVector is designed to be embedded inside:
+Vector is designed to be embedded inside:
 - Jupyter notebooks  
 - data/analysis workflows  
 - interactive canvases  
@@ -66,4 +66,5 @@ The library prefers:
 
 This keeps the system small, comprehensible, and difficult to misuse.
 
-PyVector is intentionally opinionated — features must earn their existence.
+Vector is intentionally opinionated — features must earn their existence.
+

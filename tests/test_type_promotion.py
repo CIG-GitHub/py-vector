@@ -1,13 +1,13 @@
 """
-Tests for typing, dtype inference, promotion and nullable behavior in PyVector.
+Tests for typing, dtype inference, promotion and nullable behavior in Vector.
 """
 
 from datetime import date, datetime
 
 import pytest
 
-from py_vector import PyVector
-from py_vector.typing import DataType, infer_dtype
+from jib import Vector
+from jib.typing import DataType, infer_dtype
 
 
 class TestInferDtype:
@@ -82,33 +82,33 @@ class TestVectorCreationWithDtype:
     """Creating vectors with explicit DataType or Python type."""
 
     def test_create_typed_int(self):
-        v = PyVector([1, 2, 3], dtype=DataType(int, nullable=False))
+        v = Vector([1, 2, 3], dtype=DataType(int, nullable=False))
         s = v.schema()
         assert s.kind is int
         assert s.nullable is False
         assert list(v) == [1, 2, 3]
 
     def test_create_nullable_int(self):
-        v = PyVector([1, None, 3], dtype=DataType(int, nullable=True))
+        v = Vector([1, None, 3], dtype=DataType(int, nullable=True))
         s = v.schema()
         assert s.kind is int
         assert s.nullable is True
         assert list(v) == [1, None, 3]
 
     def test_create_typed_float(self):
-        v = PyVector([1.0, 2.0, 3.0], dtype=DataType(float, nullable=False))
+        v = Vector([1.0, 2.0, 3.0], dtype=DataType(float, nullable=False))
         s = v.schema()
         assert s.kind is float
         assert s.nullable is False
 
     def test_create_typed_str(self):
-        v = PyVector(["a", "b", "c"], dtype=DataType(str, nullable=False))
+        v = Vector(["a", "b", "c"], dtype=DataType(str, nullable=False))
         s = v.schema()
         assert s.kind is str
         assert s.nullable is False
 
     def test_python_type_shorthand(self):
-        v = PyVector([1, 2, 3], dtype=int)
+        v = Vector([1, 2, 3], dtype=int)
         s = v.schema()
         assert s.kind is int
         assert s.nullable is False
@@ -118,7 +118,7 @@ class TestArithmeticPromotion:
     """Arithmetic ops should produce new vectors with promoted dtype."""
 
     def test_add_scalar_promotes_int_to_float(self):
-        v = PyVector([1, 2, 3])
+        v = Vector([1, 2, 3])
         out = v + 0.5
 
         s = out.schema()
@@ -127,7 +127,7 @@ class TestArithmeticPromotion:
         assert list(out) == [1.5, 2.5, 3.5]
 
     def test_mul_scalar_promotes_int_to_float(self):
-        v = PyVector([1, 2, 3])
+        v = Vector([1, 2, 3])
         out = v * 0.5
 
         s = out.schema()
@@ -136,7 +136,7 @@ class TestArithmeticPromotion:
         assert list(out) == [0.5, 1.0, 1.5]
 
     def test_div_scalar_promotes_int_to_float(self):
-        v = PyVector([4, 6, 8])
+        v = Vector([4, 6, 8])
         out = v / 2
 
         s = out.schema()
@@ -145,8 +145,8 @@ class TestArithmeticPromotion:
         assert list(out) == [2.0, 3.0, 4.0]
 
     def test_vector_vector_numeric_promotion(self):
-        v_int = PyVector([1, 2, 3])
-        v_float = PyVector([1.5, 2.5, 3.5])
+        v_int = Vector([1, 2, 3])
+        v_float = Vector([1.5, 2.5, 3.5])
 
         out = v_int + v_float
         s = out.schema()
@@ -155,8 +155,8 @@ class TestArithmeticPromotion:
         assert list(out) == [2.5, 4.5, 6.5]
 
     def test_vector_vector_complex_promotion(self):
-        v = PyVector([1, 2.0, 3])
-        w = PyVector([1 + 2j, 0 + 0j, 5 + 0j])
+        v = Vector([1, 2.0, 3])
+        w = Vector([1 + 2j, 0 + 0j, 5 + 0j])
 
         out = v + w
         s = out.schema()
@@ -165,7 +165,7 @@ class TestArithmeticPromotion:
         assert list(out) == [2 + 2j, 2.0 + 0j, 8 + 0j]
 
     def test_arith_with_none_preserves_mask(self):
-        v = PyVector([1, None, 3])
+        v = Vector([1, None, 3])
         out = v + 10
 
         s = out.schema()
@@ -174,7 +174,7 @@ class TestArithmeticPromotion:
         assert list(out) == [11, None, 13]
 
     def test_comparison_with_none_produces_bool_mask(self):
-        v = PyVector([1, None, 3])
+        v = Vector([1, None, 3])
         mask = v > 1
 
         s = mask.schema()
@@ -184,8 +184,8 @@ class TestArithmeticPromotion:
         assert list(mask) == [False, False, True]
 
     def test_mixed_incompatible_types_fall_back_to_object(self):
-        v = PyVector([1, 2, 3])
-        w = PyVector(["a", "b", "c"])
+        v = Vector([1, 2, 3])
+        w = Vector(["a", "b", "c"])
 
         out = v + w  # whatever behavior you choose, dtype should be object
         s = out.schema()
@@ -196,7 +196,7 @@ class TestDataTypePromotionInternal:
     """Direct tests for internal promotion behavior (_promote)."""
 
     def test_numeric_ladder_int_to_float(self):
-        v = PyVector([1, 2, 3])
+        v = Vector([1, 2, 3])
         assert v.schema().kind is int
 
         v._promote(float)
@@ -205,30 +205,30 @@ class TestDataTypePromotionInternal:
         assert list(v) == [1.0, 2.0, 3.0]
 
     def test_numeric_ladder_int_to_complex(self):
-        v = PyVector([1, 2, 3])
+        v = Vector([1, 2, 3])
         v._promote(complex)
         s = v.schema()
         assert s.kind is complex
         assert list(v) == [1 + 0j, 2 + 0j, 3 + 0j]
 
     def test_numeric_ladder_float_to_complex(self):
-        v = PyVector([1.5, 2.5])
+        v = Vector([1.5, 2.5])
         v._promote(complex)
         s = v.schema()
         assert s.kind is complex
         assert list(v) == [1.5 + 0j, 2.5 + 0j]
 
     def test_numeric_backward_promotions_disallowed(self):
-        v = PyVector([1.5, 2.5])
+        v = Vector([1.5, 2.5])
         with pytest.raises(Exception):
             v._promote(int)
 
-        w = PyVector([1 + 2j, 3 + 4j])
+        w = Vector([1 + 2j, 3 + 4j])
         with pytest.raises(Exception):
             w._promote(float)
 
     def test_temporal_ladder_date_to_datetime(self):
-        v = PyVector([date(2020, 1, 1), date(2020, 1, 2)])
+        v = Vector([date(2020, 1, 1), date(2020, 1, 2)])
         # Promote whole vector to datetime
         v._promote(datetime)
         s = v.schema()
@@ -237,7 +237,7 @@ class TestDataTypePromotionInternal:
         assert all(isinstance(x, datetime) for x in v)
 
     def test_promotion_preserves_nullable_flag(self):
-        v = PyVector([1, None, 3], dtype=DataType(int, nullable=True))
+        v = Vector([1, None, 3], dtype=DataType(int, nullable=True))
         assert v.schema().nullable is True
 
         v._promote(float)
@@ -251,7 +251,7 @@ class TestSetitemPromotion:
     """Setting values should trigger promotion when needed."""
 
     def test_setitem_scalar_promotes_int_to_float(self):
-        v = PyVector([1, 2, 3])
+        v = Vector([1, 2, 3])
         assert v.schema().kind is int
 
         v[1] = 2.5
@@ -260,7 +260,7 @@ class TestSetitemPromotion:
         assert list(v) == [1.0, 2.5, 3.0]
 
     def test_setitem_slice_promotes_int_to_float(self):
-        v = PyVector([1, 2, 3, 4])
+        v = Vector([1, 2, 3, 4])
         v[1:3] = [2.5, 3.5]
 
         s = v.schema()
@@ -268,7 +268,7 @@ class TestSetitemPromotion:
         assert list(v) == [1.0, 2.5, 3.5, 4.0]
 
     def test_setitem_scalar_promotes_to_complex(self):
-        v = PyVector([1, 2, 3])
+        v = Vector([1, 2, 3])
         v[0] = 1 + 2j
 
         s = v.schema()
@@ -276,8 +276,8 @@ class TestSetitemPromotion:
         assert list(v) == [1 + 2j, 2 + 0j, 3 + 0j]
 
     def test_setitem_boolean_mask_promotes(self):
-        v = PyVector([1, 2, 3, 4])
-        mask = PyVector([True, False, True, False])
+        v = Vector([1, 2, 3, 4])
+        mask = Vector([True, False, True, False])
 
         v[mask] = [1.5, 3.5]
         s = v.schema()
@@ -285,7 +285,7 @@ class TestSetitemPromotion:
         assert list(v) == [1.5, 2.0, 3.5, 4.0]
 
     def test_setitem_invalid_promotion_raises(self):
-        v = PyVector([1, 2, 3])
+        v = Vector([1, 2, 3])
         with pytest.raises(Exception):
             v[0] = "hello"  # int -> str should not be silently allowed
 
@@ -294,7 +294,7 @@ class TestNullableBehavior:
     """Masking and null-handling APIs: isna, fillna, dropna."""
 
     def test_isna_returns_boolean_mask(self):
-        v = PyVector([1, None, 3, None])
+        v = Vector([1, None, 3, None])
         m = v.isna()
 
         s = m.schema()
@@ -303,7 +303,7 @@ class TestNullableBehavior:
         assert list(m) == [False, True, False, True]
 
     def test_fillna_removes_nullable_flag(self):
-        v = PyVector([1, None, 3])
+        v = Vector([1, None, 3])
         assert v.schema().nullable is True
 
         filled = v.fillna(0)
@@ -313,7 +313,7 @@ class TestNullableBehavior:
         assert list(filled) == [1, 0, 3]
 
     def test_dropna_removes_nullable_flag(self):
-        v = PyVector([1, None, 3, None, 5])
+        v = Vector([1, None, 3, None, 5])
         assert v.schema().nullable is True
 
         dropped = v.dropna()
@@ -322,7 +322,7 @@ class TestNullableBehavior:
         assert list(dropped) == [1, 3, 5]
 
     def test_arithmetic_preserves_nullable_flag(self):
-        v = PyVector([1, None, 3])
+        v = Vector([1, None, 3])
         out = v * 2
 
         s = out.schema()
@@ -331,39 +331,42 @@ class TestNullableBehavior:
 
 
 class TestTypedSubclasses:
-    """Typed subclasses: _PyInt, _PyFloat, etc."""
+    """Typed subclasses: _Int, _Float, etc."""
 
-    def test_int_vector_uses_PyInt_subclass(self):
-        from py_vector.vector import _PyInt
-        v = PyVector([1, 2, 3])
-        assert isinstance(v, _PyInt)
+    def test_int_vector_uses_Int_subclass(self):
+        from jib.vector import _Int
+        v = Vector([1, 2, 3])
+        assert isinstance(v, _Int)
         assert v.schema().kind is int
 
-    def test_float_vector_uses_PyFloat_subclass(self):
-        from py_vector.vector import _PyFloat
-        v = PyVector([1.5, 2.5])
-        assert isinstance(v, _PyFloat)
+    def test_float_vector_uses_Float_subclass(self):
+        from jib.vector import _Float
+        v = Vector([1.5, 2.5])
+        assert isinstance(v, _Float)
         assert v.schema().kind is float
 
-    def test_string_vector_uses_PyString_subclass(self):
-        from py_vector.vector import _PyString
-        v = PyVector(["a", "b", "c"])
-        assert isinstance(v, _PyString)
+    def test_string_vector_uses_String_subclass(self):
+        from jib.vector import _String
+        v = Vector(["a", "b", "c"])
+        assert isinstance(v, _String)
         assert v.schema().kind is str
 
-    def test_date_vector_uses_PyDate_subclass(self):
-        from py_vector.vector import _PyDate
-        v = PyVector([date(2020, 1, 1), date(2020, 1, 2)])
-        assert isinstance(v, _PyDate)
+    def test_date_vector_uses_Date_subclass(self):
+        from jib.vector import _Date
+        v = Vector([date(2020, 1, 1), date(2020, 1, 2)])
+        assert isinstance(v, _Date)
         assert v.schema().kind is date
 
     def test_promotion_does_not_change_class_but_changes_schema(self):
-        from py_vector.vector import _PyInt
-        v = PyVector([1, 2, 3])
-        assert isinstance(v, _PyInt)
+        from jib.vector import _Int
+        v = Vector([1, 2, 3])
+        assert isinstance(v, _Int)
         assert v.schema().kind is int
 
         v._promote(float)
         # class stays the same, dtype changes
-        assert isinstance(v, _PyInt)
+        assert isinstance(v, _Int)
         assert v.schema().kind is float
+
+
+

@@ -1,15 +1,15 @@
 import pytest
 import warnings
-from py_vector import PyTable
-from py_vector import PyVector
+from jib import Table
+from jib import Vector
 
 
 class TestAggregate:
-	"""Tests for PyTable.aggregate() method"""
+	"""Tests for Table.aggregate() method"""
 	
 	def test_aggregate_single_partition_single_aggregation(self):
 		"""Basic aggregation with one partition key and one aggregation"""
-		table = PyTable({
+		table = Table({
 			'customer': ['A', 'B', 'A', 'C', 'B', 'A'],
 			'sales': [100, 200, 150, 300, 250, 175]
 		})
@@ -30,7 +30,7 @@ class TestAggregate:
 	
 	def test_aggregate_multiple_partitions(self):
 		"""Aggregate with multiple partition keys"""
-		table = PyTable({
+		table = Table({
 			'year': [2023, 2023, 2024, 2024, 2023, 2024],
 			'month': [1, 2, 1, 2, 1, 1],
 			'revenue': [100, 200, 150, 300, 50, 175]
@@ -52,7 +52,7 @@ class TestAggregate:
 	
 	def test_aggregate_multiple_aggregations(self):
 		"""Multiple aggregation functions on same partition"""
-		table = PyTable({
+		table = Table({
 			'group': ['X', 'Y', 'X', 'Y', 'X'],
 			'value': [10, 20, 30, 40, 50]
 		})
@@ -80,7 +80,7 @@ class TestAggregate:
 	
 	def test_aggregate_with_none_values(self):
 		"""Aggregations should handle None values correctly"""
-		table = PyTable({
+		table = Table({
 			'category': ['A', 'A', 'B', 'B'],
 			'amount': [10, None, 20, 30]
 		})
@@ -102,7 +102,7 @@ class TestAggregate:
 	
 	def test_aggregate_stdev(self):
 		"""Test standard deviation aggregation"""
-		table = PyTable({
+		table = Table({
 			'group': ['A', 'A', 'A', 'B', 'B'],
 			'value': [2, 4, 6, 10, 20]
 		})
@@ -120,7 +120,7 @@ class TestAggregate:
 	
 	def test_aggregate_custom_apply(self):
 		"""Test custom aggregation functions"""
-		table = PyTable({
+		table = Table({
 			'team': ['Red', 'Blue', 'Red', 'Blue'],
 			'score': [10, 20, 30, 40]
 		})
@@ -146,7 +146,7 @@ class TestAggregate:
 	
 	def test_aggregate_multiple_columns_same_aggregation(self):
 		"""Aggregate multiple columns with same function"""
-		table = PyTable({
+		table = Table({
 			'region': ['North', 'South', 'North'],
 			'sales': [100, 200, 150],
 			'costs': [60, 120, 90]
@@ -166,7 +166,7 @@ class TestAggregate:
 	
 	def test_aggregate_name_deduplication(self):
 		"""Column names should be deduplicated"""
-		table = PyTable({
+		table = Table({
 			'id': [1, 2, 1, 2],
 			'value': [10, 20, 30, 40]
 		})
@@ -182,11 +182,11 @@ class TestAggregate:
 
 
 class TestWindow:
-	"""Tests for PyTable.window() method"""
+	"""Tests for Table.window() method"""
 	
 	def test_window_maintains_row_count(self):
 		"""Window functions should return same number of rows"""
-		table = PyTable({
+		table = Table({
 			'customer': ['A', 'B', 'A', 'C', 'B', 'A'],
 			'sales': [100, 200, 150, 300, 250, 175]
 		})
@@ -203,7 +203,7 @@ class TestWindow:
 	
 	def test_window_repeats_aggregated_values(self):
 		"""Aggregated values should repeat for each row in partition"""
-		table = PyTable({
+		table = Table({
 			'group': ['X', 'X', 'Y', 'Y', 'X'],
 			'amount': [10, 20, 30, 40, 50]
 		})
@@ -224,7 +224,7 @@ class TestWindow:
 	
 	def test_window_multiple_partitions(self):
 		"""Window with multiple partition keys"""
-		table = PyTable({
+		table = Table({
 			'year': [2023, 2023, 2024, 2024, 2023],
 			'quarter': [1, 1, 1, 2, 1],
 			'revenue': [100, 200, 150, 300, 50]
@@ -250,7 +250,7 @@ class TestWindow:
 	
 	def test_window_multiple_aggregations(self):
 		"""Multiple window functions simultaneously"""
-		table = PyTable({
+		table = Table({
 			'category': ['A', 'B', 'A', 'B'],
 			'value': [10, 20, 30, 40]
 		})
@@ -273,7 +273,7 @@ class TestWindow:
 	
 	def test_window_running_total_example(self):
 		"""Practical example: running total per customer"""
-		table = PyTable({
+		table = Table({
 			'customer_id': [101, 102, 101, 101, 102],
 			'order_amount': [50, 100, 75, 25, 150]
 		})
@@ -296,7 +296,7 @@ class TestWindow:
 	
 	def test_window_custom_apply(self):
 		"""Custom window function"""
-		table = PyTable({
+		table = Table({
 			'team': ['A', 'B', 'A', 'B'],
 			'score': [10, 20, 30, 40]
 		})
@@ -323,7 +323,7 @@ class TestWindow:
 	
 	def test_window_with_none_values(self):
 		"""Window functions should handle None correctly"""
-		table = PyTable({
+		table = Table({
 			'group': ['X', 'X', 'Y', 'Y'],
 			'amount': [10, None, 20, 30]
 		})
@@ -346,7 +346,7 @@ class TestWindow:
 	
 	def test_window_stdev(self):
 		"""Window standard deviation"""
-		table = PyTable({
+		table = Table({
 			'category': ['A', 'A', 'A', 'B', 'B'],
 			'value': [2, 4, 6, 10, 20]
 		})
@@ -366,55 +366,55 @@ class TestAggregateWindowEdgeCases:
 	
 	def test_aggregate_wrong_length_partition_key(self):
 		"""Should raise error if partition key has wrong length"""
-		table = PyTable({
+		table = Table({
 			'a': [1, 2, 3],
 			'b': [4, 5, 6]
 		})
 		
-		bad_key = PyVector([1, 2])  # Wrong length
+		bad_key = Vector([1, 2])  # Wrong length
 		
 		with pytest.raises(ValueError, match="Partition key.*has length 2.*table has 3 rows"):
 			table.aggregate(over=bad_key, sum_over=table.b)
 	
 	def test_aggregate_wrong_length_aggregation_column(self):
 		"""Should raise error if aggregation column has wrong length"""
-		table = PyTable({
+		table = Table({
 			'a': [1, 1, 2],
 			'b': [4, 5, 6]
 		})
 		
-		bad_col = PyVector([10, 20])  # Wrong length
+		bad_col = Vector([10, 20])  # Wrong length
 		
 		with pytest.raises(ValueError, match="wrong length"):
 			table.aggregate(over=table.a, sum_over=bad_col)
 	
 	def test_window_wrong_length_partition_key(self):
 		"""Window should raise error if partition key has wrong length"""
-		table = PyTable({
+		table = Table({
 			'a': [1, 2, 3],
 			'b': [4, 5, 6]
 		})
 		
-		bad_key = PyVector([1, 2, 3, 4])  # Wrong length
+		bad_key = Vector([1, 2, 3, 4])  # Wrong length
 		
 		with pytest.raises(ValueError, match="Partition key.*has length 4.*table has 3 rows"):
 			table.window(over=bad_key, sum_over=table.b)
 	
 	def test_window_wrong_length_aggregation_column(self):
 		"""Window should raise error if aggregation column has wrong length"""
-		table = PyTable({
+		table = Table({
 			'a': [1, 1, 2],
 			'b': [4, 5, 6]
 		})
 		
-		bad_col = PyVector([10])  # Wrong length
+		bad_col = Vector([10])  # Wrong length
 		
 		with pytest.raises(ValueError, match="wrong length"):
 			table.window(over=table.a, sum_over=bad_col)
 	
 	def test_aggregate_empty_table(self):
 		"""Aggregate on empty table should return empty result"""
-		table = PyTable({
+		table = Table({
 			'x': [],
 			'y': []
 		})
@@ -424,7 +424,7 @@ class TestAggregateWindowEdgeCases:
 	
 	def test_window_empty_table(self):
 		"""Window on empty table should return empty result"""
-		table = PyTable({
+		table = Table({
 			'x': [],
 			'y': []
 		})
@@ -435,11 +435,11 @@ class TestAggregateWindowEdgeCases:
 
 	def test_aggregate_over_no_warnings_and_correct_keys(self):
 		# Create a small table with year/month partition keys
-		year = PyVector([2020, 2020, 2021, 2021], name='year')
-		month = PyVector([1, 2, 1, 2], name='month')
-		val = PyVector([10, 20, 30, 40], name='val')
+		year = Vector([2020, 2020, 2021, 2021], name='year')
+		month = Vector([1, 2, 1, 2], name='month')
+		val = Vector([10, 20, 30, 40], name='val')
 
-		table = PyTable([year, month, val])
+		table = Table([year, month, val])
 
 		# Capture warnings
 		with warnings.catch_warnings(record=True) as w:
@@ -458,3 +458,6 @@ class TestAggregateWindowEdgeCases:
 		expected_keys = list({(year[i], month[i]) for i in range(len(year))})
 		actual_keys = list(zip(res_year._underlying, res_month._underlying))
 		assert set(actual_keys) == set(expected_keys)
+
+
+

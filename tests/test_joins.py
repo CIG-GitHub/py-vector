@@ -1,16 +1,16 @@
 import pytest
-from py_vector import PyVector
-from py_vector import PyTable
-from py_vector.errors import PyVectorTypeError
+from jib import Vector
+from jib import Table
+from jib.errors import JibTypeError
 
 
 def test_inner_join_basic():
 	"""Test basic inner join with single key"""
-	left = PyTable({
+	left = Table({
 		'id': [1, 2, 3],
 		'name': ['Alice', 'Bob', 'Charlie']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [2, 3, 4],
 		'age': [25, 30, 35]
 	})
@@ -25,12 +25,12 @@ def test_inner_join_basic():
 
 def test_inner_join_multi_key():
 	"""Test inner join with composite keys"""
-	left = PyTable({
+	left = Table({
 		'customer_id': [1, 1, 2],
 		'date': ['2023-01-01', '2023-01-02', '2023-01-01'],
 		'amount': [100, 200, 300]
 	})
-	right = PyTable({
+	right = Table({
 		'customer_id': [1, 2, 1],
 		'date': ['2023-01-01', '2023-01-01', '2023-01-03'],
 		'status': ['active', 'active', 'inactive']
@@ -49,11 +49,11 @@ def test_inner_join_multi_key():
 
 def test_join_left():
 	"""Test left join preserves all left rows"""
-	left = PyTable({
+	left = Table({
 		'id': [1, 2, 3],
 		'name': ['Alice', 'Bob', 'Charlie']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [2, 4],
 		'age': [25, 35]
 	})
@@ -67,11 +67,11 @@ def test_join_left():
 
 def test_full_join():
 	"""Test full outer join includes all rows from both tables"""
-	left = PyTable({
+	left = Table({
 		'id': [1, 2],
 		'left_val': ['A', 'B']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [2, 3],
 		'right_val': ['X', 'Y']
 	})
@@ -86,11 +86,11 @@ def test_full_join():
 
 def test_many_to_one_cardinality():
 	"""Test that many_to_one default catches duplicate right keys"""
-	left = PyTable({
+	left = Table({
 		'order_id': [1, 2, 3],
 		'customer_id': [100, 100, 200]
 	})
-	right = PyTable({
+	right = Table({
 		'customer_id': [100, 100, 200],  # Duplicate 100!
 		'name': ['Alice', 'Alice2', 'Bob']
 	})
@@ -101,11 +101,11 @@ def test_many_to_one_cardinality():
 
 def test_one_to_one_cardinality():
 	"""Test that one_to_one catches duplicates on both sides"""
-	left = PyTable({
+	left = Table({
 		'id': [1, 1, 2],  # Duplicate 1!
 		'left_val': ['A', 'A2', 'B']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [1, 2],
 		'right_val': ['X', 'Y']
 	})
@@ -116,11 +116,11 @@ def test_one_to_one_cardinality():
 
 def test_many_to_many_allows_duplicates():
 	"""Test that many_to_many allows duplicates on both sides"""
-	left = PyTable({
+	left = Table({
 		'key': [1, 1, 2],
 		'left_val': ['A', 'B', 'C']
 	})
-	right = PyTable({
+	right = Table({
 		'key': [1, 1, 2],
 		'right_val': ['X', 'Y', 'Z']
 	})
@@ -134,11 +134,11 @@ def test_many_to_many_allows_duplicates():
 
 def test_one_to_many_cardinality():
 	"""Test that one_to_many allows multiple right matches per left"""
-	left = PyTable({
+	left = Table({
 		'id': [1, 2],
 		'name': ['Alice', 'Bob']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [1, 1, 2],
 		'order': ['Order1', 'Order2', 'Order3']
 	})
@@ -152,11 +152,11 @@ def test_one_to_many_cardinality():
 
 def test_join_empty_result():
 	"""Test that join with no matches returns empty table"""
-	left = PyTable({
+	left = Table({
 		'id': [1, 2],
 		'val': ['A', 'B']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [3, 4],
 		'val': ['X', 'Y']
 	})
@@ -168,11 +168,11 @@ def test_join_empty_result():
 
 def test_join_preserves_column_names():
 	"""Test that column names are preserved after join"""
-	left = PyTable({
+	left = Table({
 		'customer_id': [1, 2],
 		'order_total': [100, 200]
 	})
-	right = PyTable({
+	right = Table({
 		'id': [1, 2],
 		'customer_name': ['Alice', 'Bob']
 	})
@@ -187,11 +187,11 @@ def test_join_preserves_column_names():
 
 def test_left_join_with_multiple_right_matches():
 	"""Test left join when right side has multiple matches (many_to_many)"""
-	left = PyTable({
+	left = Table({
 		'id': [1],
 		'name': ['Alice']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [1, 1],
 		'order': ['Order1', 'Order2']
 	})
@@ -205,11 +205,11 @@ def test_left_join_with_multiple_right_matches():
 
 def test_full_join_no_matches():
 	"""Test full join when no keys match"""
-	left = PyTable({
+	left = Table({
 		'id': [1, 2],
 		'left_val': ['A', 'B']
 	})
-	right = PyTable({
+	right = Table({
 		'id': [3, 4],
 		'right_val': ['X', 'Y']
 	})
@@ -225,11 +225,11 @@ def test_full_join_no_matches():
 
 def test_join_different_column_names():
 	"""Test join where left and right use different column names"""
-	left = PyTable({
+	left = Table({
 		'user_id': [1, 2, 3],
 		'name': ['Alice', 'Bob', 'Charlie']
 	})
-	right = PyTable({
+	right = Table({
 		'customer_id': [2, 3, 4],
 		'purchases': [5, 10, 15]
 	})
@@ -241,10 +241,10 @@ def test_join_different_column_names():
 	assert list(result['purchases']) == [5, 10]
 
 
-def test_join_with_pyvector_columns():
-	"""Test join using PyVector columns directly instead of strings"""
-	left = PyTable({'id': [1, 2]})
-	right = PyTable({'id': [2, 3]})
+def test_join_with_Vector_columns():
+	"""Test join using Vector columns directly instead of strings"""
+	left = Table({'id': [1, 2]})
+	right = Table({'id': [2, 3]})
 	
 	result = left.inner_join(right, left_on=left.id, right_on=right.id)
 	
@@ -252,14 +252,14 @@ def test_join_with_pyvector_columns():
 	assert list(result['id']) == [2]
 
 
-def test_join_multi_key_with_pyvectors():
-	"""Test multi-key join using PyVector columns"""
-	left = PyTable({
+def test_join_multi_key_with_Vectors():
+	"""Test multi-key join using Vector columns"""
+	left = Table({
 		'a': [1, 1, 2],
 		'b': [10, 20, 10],
 		'val': ['x', 'y', 'z']
 	})
-	right = PyTable({
+	right = Table({
 		'a': [1, 2, 1],
 		'b': [10, 10, 30],
 		'data': ['p', 'q', 'r']
@@ -274,8 +274,8 @@ def test_join_multi_key_with_pyvectors():
 
 def test_join_key_validation_length_mismatch():
 	"""Test that mismatched left_on/right_on lengths raise error"""
-	left = PyTable({'id': [1, 2], 'date': ['a', 'b']})
-	right = PyTable({'id': [2, 3]})
+	left = Table({'id': [1, 2], 'date': ['a', 'b']})
+	right = Table({'id': [2, 3]})
 	
 	with pytest.raises(ValueError, match="same length"):
 		left.inner_join(right, left_on=['id', 'date'], right_on=['id'])
@@ -283,43 +283,43 @@ def test_join_key_validation_length_mismatch():
 
 def test_join_key_validation_missing_column():
 	"""Test that non-existent column names raise error"""
-	left = PyTable({'id': [1, 2]})
-	right = PyTable({'id': [2, 3]})
+	left = Table({'id': [1, 2]})
+	right = Table({'id': [2, 3]})
     
-	from py_vector.errors import PyVectorKeyError
-	with pytest.raises(PyVectorKeyError):
+	from jib.errors import JibKeyError
+	with pytest.raises(JibKeyError):
 		left.inner_join(right, left_on='missing_col', right_on='id')
 
 
 def test_join_with_computed_keys():
 	"""Test that float columns are rejected as join keys"""
-	left = PyTable({
+	left = Table({
 		'price': [100.0, 200.0, 300.0],
 		'name': ['A', 'B', 'C']
 	})
-	right = PyTable({
+	right = Table({
 		'price_with_tax': [108.0, 216.0, 324.0],
 		'quantity': [1, 2, 3]
 	})
 	
 	# Float keys should be rejected due to precision issues
-	with pytest.raises(PyVectorTypeError, match="Invalid join key dtype 'float'"):
+	with pytest.raises(JibTypeError, match="Invalid join key dtype 'float'"):
 		left.inner_join(right, left_on=left['price'] * 1.08, right_on=right['price_with_tax'])
 
 
 def test_join_with_constant_vector():
-	"""Test joining with a constant PyVector (broadcast join pattern)"""
-	left = PyTable({
+	"""Test joining with a constant Vector (broadcast join pattern)"""
+	left = Table({
 		'id': [1, 2],
 		'val': ['x', 'y']
 	})
-	right = PyTable({
+	right = Table({
 		'flag': [1, 1, 1],
 		'data': ['a', 'b', 'c']
 	})
 	
 	# Create constant vector matching left table length
-	constant_key = PyVector([1, 1])
+	constant_key = Vector([1, 1])
 	
 	# This creates a cartesian-like product where every left row matches every right row
 	result = left.inner_join(right, left_on=constant_key, right_on=right['flag'], expect='many_to_many')
@@ -329,11 +329,11 @@ def test_join_with_constant_vector():
 
 def test_join_sanitized_column_name_lookup():
 	"""Test that string lookup works with both exact and sanitized names"""
-	left = PyTable({
+	left = Table({
 		'Customer ID': [1, 2, 3],
 		'Name': ['Alice', 'Bob', 'Charlie']
 	})
-	right = PyTable({
+	right = Table({
 		'CUSTOMER_ID': [2, 3, 4],
 		'Age': [25, 30, 35]
 	})
@@ -346,24 +346,24 @@ def test_join_sanitized_column_name_lookup():
 
 
 def test_join_key_wrong_length_left():
-	"""Test that left_on PyVector with wrong length raises error"""
-	left = PyTable({'id': [1, 2, 3]})
-	right = PyTable({'id': [2, 3]})
+	"""Test that left_on Vector with wrong length raises error"""
+	left = Table({'id': [1, 2, 3]})
+	right = Table({'id': [2, 3]})
 	
-	# Create PyVector with wrong length
-	wrong_length_key = PyVector([1, 2])  # Length 2, but left table has 3 rows
+	# Create Vector with wrong length
+	wrong_length_key = Vector([1, 2])  # Length 2, but left table has 3 rows
 	
 	with pytest.raises(ValueError, match="Left join key.*has length 2.*left table has 3 rows"):
 		left.inner_join(right, left_on=wrong_length_key, right_on=right.id)
 
 
 def test_join_key_wrong_length_right():
-	"""Test that right_on PyVector with wrong length raises error"""
-	left = PyTable({'id': [1, 2]})
-	right = PyTable({'id': [2, 3, 4]})
+	"""Test that right_on Vector with wrong length raises error"""
+	left = Table({'id': [1, 2]})
+	right = Table({'id': [2, 3, 4]})
 	
-	# Create PyVector with wrong length
-	wrong_length_key = PyVector([1, 2])  # Length 2, but right table has 3 rows
+	# Create Vector with wrong length
+	wrong_length_key = Vector([1, 2])  # Length 2, but right table has 3 rows
 	
 	with pytest.raises(ValueError, match="Right join key.*has length 2.*right table has 3 rows"):
 		left.inner_join(right, left_on=left.id, right_on=wrong_length_key)
@@ -371,12 +371,12 @@ def test_join_key_wrong_length_right():
 
 def test_join_multi_key_computed():
 	"""Test multi-key join with mix of columns and computed values"""
-	left = PyTable({
+	left = Table({
 		'year': [2023, 2023, 2024],
 		'month': [1, 2, 1],
 		'amount': [100, 200, 300]
 	})
-	right = PyTable({
+	right = Table({
 		'period_code': [202301, 202302, 202401],
 		'budget': [150, 250, 350]
 	})
@@ -389,4 +389,7 @@ def test_join_multi_key_computed():
 	assert len(result) == 3
 	assert list(result['amount']) == [100, 200, 300]
 	assert list(result['budget']) == [150, 250, 350]
+
+
+
 

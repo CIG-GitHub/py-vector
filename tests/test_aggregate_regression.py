@@ -1,15 +1,15 @@
 import warnings
-from py_vector import PyVector
-from py_vector import PyTable
+from jib import Vector
+from jib import Table
 
 
 def test_aggregate_over_no_warnings_and_correct_keys():
     # Create a small table with year/month partition keys
-    year = PyVector([2020, 2020, 2021, 2021], name='year')
-    month = PyVector([1, 2, 1, 2], name='month')
-    val = PyVector([10, 20, 30, 40], name='val')
+    year = Vector([2020, 2020, 2021, 2021], name='year')
+    month = Vector([1, 2, 1, 2], name='month')
+    val = Vector([10, 20, 30, 40], name='val')
 
-    table = PyTable([year, month, val])
+    table = Table([year, month, val])
 
     # Capture warnings
     with warnings.catch_warnings(record=True) as w:
@@ -28,3 +28,6 @@ def test_aggregate_over_no_warnings_and_correct_keys():
     expected_keys = {(year[i], month[i]) for i in range(len(year))}
     actual_keys = set(zip(res_year._underlying, res_month._underlying))
     assert actual_keys == expected_keys
+
+
+

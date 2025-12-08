@@ -1,16 +1,16 @@
-# PyVector Design Philosophy
+# Jib Design Philosophy
 
-PyVector is intentionally small, predictable, and Pythonic.  
+Jib is intentionally small, predictable, and Pythonic.  
 Its goal is not to compete with full-fledged analytics engines, but to provide a clean, minimal foundation for vectors, tables, and lightweight transformations that integrate naturally with Python and the UI systems built on top of it.
 
-This document outlines the core principles that guide the design of PyVector.  
+This document outlines the core principles that guide the design of Jib.  
 Any future feature or contribution should be evaluated against these principles.
 
 ---
 
 ## **Principle 1 — Minimal Surface Area; Maximal Composability**
 
-PyVector prioritizes a small, understandable set of primitives rather than an ever-expanding API.  
+Jib prioritizes a small, understandable set of primitives rather than an ever-expanding API.  
 Every additional method or behavior must *earn its place* by providing clear value and interacting cleanly with existing semantics.
 
 - Prefer a single, general mechanism over multiple convenience wrappers.
@@ -18,13 +18,13 @@ Every additional method or behavior must *earn its place* by providing clear val
 - Avoid implicit magic or hidden transformations.
 - If a feature can be built from existing pieces, it probably should be.
 
-PyVector's strength comes from being small, predictable, and easy to reason about.
+Jib's strength comes from being small, predictable, and easy to reason about.
 
 ---
 
 ## **Principle 2 — Vector Semantics First, Table Semantics Built on Top**
 
-PyVector treats vectors as the core abstraction.  
+Vector treats vectors as the core abstraction.  
 Tables, matrices, and higher-dimensional structures are built by composing vectors, not by inventing an entirely separate conceptual layer.
 
 - Columns are vectors; tables are collections of column-vectors.
@@ -32,13 +32,13 @@ Tables, matrices, and higher-dimensional structures are built by composing vecto
 - Slicing, masking, mapping, and arithmetic derive naturally from vector behavior.
 - 2D structure must never violate 1D consistency.
 
-This ensures that PyVector has a coherent mathematical foundation, and that tables remain predictable rather than becoming a separate “galaxy” of special rules.
+This ensures that Vector has a coherent mathematical foundation, and that tables remain predictable rather than becoming a separate “galaxy” of special rules.
 
 ---
 
 ## **Principle 3 — Pythonic by Default; Strict Where Ambiguity Creates Risk**
 
-PyVector follows Python’s scalar and operator semantics wherever they are intuitive, predictable, and safe. This ensures that vectorized expressions behave naturally for users who already understand Python.
+Jib follows Python’s scalar and operator semantics wherever they are intuitive, predictable, and safe. This ensures that vectorized expressions behave naturally for users who already understand Python.
 
 However, when Python’s legacy behaviors lead to surprising or harmful outcomes—particularly in contexts involving boolean masks, filtering, or data selection—the library introduces minimal, targeted restrictions.
 
@@ -54,7 +54,7 @@ The goal is not to redefine Python, but to inherit its behaviors where they make
 
 ## **Principle 4 — Explicit Is Better Than Implicit**
 
-Ambiguity leads to bugs. PyVector avoids “cleverness” that conceals meaning.
+Ambiguity leads to bugs. Jib avoids “cleverness” that conceals meaning.
 
 - No automatic type inference beyond what Python already does.
 - No silent coercions except those Python performs natively.
@@ -62,13 +62,13 @@ Ambiguity leads to bugs. PyVector avoids “cleverness” that conceals meaning.
 - Masking is always explicit.
 - Indexing rules are strict, predictable, and documented.
 
-This keeps PyVector stable as datasets grow and transforms become more complex.
+This keeps Jib stable as datasets grow and transforms become more complex.
 
 ---
 
 ## **Principle 5 — Representation Should Reinforce Understanding**
 
-Every PyVector or PyTable should print in a form that:
+Every Vector or Table should print in a form that:
 
 - gives useful structural information,
 - shows representative data,
@@ -97,14 +97,14 @@ This includes:
 - type promotion,
 - and table-column alignment.
 
-PyVector preserves semantics consistently regardless of scale.  
+Jib preserves semantics consistently regardless of scale.  
 Performance optimizations should not introduce semantic differences.
 
 ---
 
 ## **Principle 7 — Fewer Concepts, Better Concepts**
 
-Whenever possible, PyVector favors:
+Whenever possible, Jib favors:
 
 - one way to do a thing,
 - orthogonal building blocks,
@@ -117,7 +117,7 @@ If adding a feature forces the user to learn another “mini-language” to unde
 
 # Summary
 
-PyVector’s philosophy is straightforward:
+Jib philosophy is straightforward:
 
 - Keep the system small, composable, and Pythonic.  
 - Let vectors define table behavior.  
@@ -127,4 +127,5 @@ PyVector’s philosophy is straightforward:
 - Choose clarity and minimalism over kitchen-sink convenience.
 
 Any future addition should be judged on whether it strengthens or weakens these principles.
+
 

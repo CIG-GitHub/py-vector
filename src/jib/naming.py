@@ -5,19 +5,19 @@ import re
 
 
 def _get_reserved_names():
-	"""Get all public methods and properties from PyVector and PyTable classes.
+	"""Get all public methods and properties from Vector and Table classes.
 	
 	This is computed dynamically to support future plugin extensions.
 	Results are cached for performance.
 	"""
 	if not hasattr(_get_reserved_names, '_cache'):
-		from .vector import PyVector
-		from .table import PyTable
+		from .vector import Vector
+		from .table import Table
 		
 		reserved = set()
 		
 		# Collect all public attributes from both classes
-		for cls in (PyVector, PyTable):
+		for cls in (Vector, Table):
 			for name in dir(cls):
 				# Skip private/dunder attributes
 				if name.startswith('_'):
@@ -80,3 +80,4 @@ def _uniquify(base: str, seen: set[str]) -> str:
 		i += 1
 	
 	return f"{base}__{i}"
+

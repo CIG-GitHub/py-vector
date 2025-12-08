@@ -1,8 +1,8 @@
 # Naming Semantics
 
-Names in PyVector and PyTable are simple, non-magical metadata.
+Names in Vector and Table are simple, non-magical metadata.
 
-## PyVector
+## Vector
 - `name` is optional  
 - math operations do not propagate names  
 - slicing does not preserve name  
@@ -10,7 +10,7 @@ Names in PyVector and PyTable are simple, non-magical metadata.
 
 Names are human-facing, not structural.
 
-## PyTable
+## Table
 - each column has its own name  
 - duplicate names allowed  
 - dot-access resolves only to the first match  
@@ -27,3 +27,4 @@ Sanitized names do not replace the actual names.
 - weird user-provided column names are allowed  
 - dot-access provides ergonomic access without polluting data semantics  
 - users may explicitly rename columns if needed  
+

@@ -1,7 +1,7 @@
 import pytest
-from py_vector import PyVector
-from py_vector.naming import _sanitize_user_name
-from py_vector import PyTable
+from jib import Vector
+from jib.naming import _sanitize_user_name
+from jib import Table
 
 
 def test_sanitize_simple_name():
@@ -97,7 +97,7 @@ def test_sanitize_csv_headers():
 
 def test_table_getattr_with_spaces():
 	"""Test that column names with spaces work via sanitized attribute access"""
-	t = PyTable({
+	t = Table({
 		'first name': [1, 2, 3],
 		'last name': [4, 5, 6]
 	})
@@ -113,7 +113,7 @@ def test_table_getattr_with_spaces():
 
 def test_table_getattr_with_special_chars():
 	"""Test that column names with special characters work via sanitized attributes"""
-	t = PyTable({
+	t = Table({
 		'price ($)': [10, 20, 30],
 		'count@time': [1, 2, 3],
 		'col.with.dots': [4, 5, 6]
@@ -130,7 +130,7 @@ def test_table_getattr_with_special_chars():
 
 def test_table_getitem_sanitized():
 	"""Test that __getitem__ accepts both original and sanitized names"""
-	t = PyTable({
+	t = Table({
 		'first name': [1, 2, 3],
 		'price ($)': [10, 20, 30]
 	})
@@ -146,7 +146,7 @@ def test_table_getitem_sanitized():
 
 def test_table_dir_sanitized():
 	"""Test that __dir__ returns sanitized names for tab completion"""
-	t = PyTable({
+	t = Table({
 		'first name': [1, 2, 3],
 		'price ($)': [10, 20, 30],
 		'count@time': [4, 5, 6]
@@ -166,10 +166,10 @@ def test_table_dir_sanitized():
 
 def test_table_unnamed_columns():
 	"""Test that unnamed columns get col0_, col1_, etc."""
-	col1 = PyVector([1, 2, 3])
-	col2 = PyVector([4, 5, 6])
-	col3 = PyVector([7, 8, 9])
-	t = PyTable([col1, col2, col3])
+	col1 = Vector([1, 2, 3])
+	col2 = Vector([4, 5, 6])
+	col3 = Vector([7, 8, 9])
+	t = Table([col1, col2, col3])
 	
 	# Attribute access with col{idx}_
 	assert list(t.col0_) == [1, 2, 3]
@@ -185,10 +185,10 @@ def test_table_unnamed_columns():
 
 def test_table_mixed_named_unnamed():
 	"""Test mix of named and unnamed columns"""
-	col1 = PyVector([1, 2, 3], name='alpha')
-	col2 = PyVector([4, 5, 6])  # No name
-	col3 = PyVector([7, 8, 9], name='gamma')
-	t = PyTable([col1, col2, col3])
+	col1 = Vector([1, 2, 3], name='alpha')
+	col2 = Vector([4, 5, 6])  # No name
+	col3 = Vector([7, 8, 9], name='gamma')
+	t = Table([col1, col2, col3])
 	
 	# Named columns work
 	assert list(t.alpha) == [1, 2, 3]
@@ -200,7 +200,7 @@ def test_table_mixed_named_unnamed():
 
 def test_table_getattr_starts_with_digit():
 	"""Test that column names starting with digits get prefixed with 'c'"""
-	t = PyTable({
+	t = Table({
 		'2023 Revenue': [100, 200, 300],
 		'1st Place': [1, 2, 3]
 	})
@@ -213,9 +213,9 @@ def test_table_getattr_starts_with_digit():
 def test_table_getitem_priority():
 	"""Test that exact match takes priority over sanitized match"""
 	# Create a table where sanitized name might conflict
-	col1 = PyVector([1, 2, 3], name='first_name')
-	col2 = PyVector([4, 5, 6], name='first name')  # Sanitizes to same thing
-	t = PyTable([col1, col2])
+	col1 = Vector([1, 2, 3], name='first_name')
+	col2 = Vector([4, 5, 6], name='first name')  # Sanitizes to same thing
+	t = Table([col1, col2])
 	
 	# Exact matches should work
 	assert list(t['first_name']) == [1, 2, 3]
@@ -227,7 +227,7 @@ def test_table_getitem_priority():
 
 def test_table_empty_column_name():
 	"""Test that empty/special-only column names get system names"""
-	t = PyTable({
+	t = Table({
 		'': [1, 2, 3],
 		'   ': [4, 5, 6],  # All spaces
 		'$$$': [7, 8, 9]   # All special chars
@@ -246,7 +246,7 @@ def test_table_empty_column_name():
 
 def test_sanitization_preserves_camelcase():
 	"""Test that CamelCase and other valid identifiers work"""
-	t = PyTable({
+	t = Table({
 		'CamelCase': [1, 2, 3],
 		'snake_case': [4, 5, 6],
 		'UPPERCASE': [7, 8, 9]
@@ -255,3 +255,6 @@ def test_sanitization_preserves_camelcase():
 	assert list(t.camelcase) == [1, 2, 3]  # case-insensitive
 	assert list(t.snake_case) == [4, 5, 6]
 	assert list(t.uppercase) == [7, 8, 9]  # case-insensitive
+
+
+

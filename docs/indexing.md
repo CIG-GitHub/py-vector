@@ -1,6 +1,6 @@
 # Indexing Rules
 
-PyVector and PyTable use a strict, predictable indexing model built around
+Vector and Table use a strict, predictable indexing model built around
 two principles:
 
 1. **Column-major tables** — columns are primary, rows are derived.
@@ -9,9 +9,9 @@ two principles:
 This avoids the complexity of Pandas/NumPy-style multi-axis indexing while
 remaining expressive, fast, and mathematically clear.
 
-## 1. PyVector Indexing
+## 1. Vector Indexing
 
-A PyVector supports three forms of indexing:
+A Vector has three primary forms of indexing:
 
 ### 1.1 Integer index
 
@@ -27,7 +27,7 @@ Returns a Python scalar of the underlying dtype.
 v[i:j:k]
 ```
 
-Returns a new PyVector of the same dtype.
+Returns a new Vector of the same dtype.
 
 ### 1.3 Boolean mask
 
@@ -36,8 +36,8 @@ v[mask]
 ```
 
 Rules:
-- `mask` must be a PyVector(bool) of the same length.
-- Returns a filtered PyVector.
+- `mask` must be a Vector(bool) of the same length.
+- Returns a filtered Vector.
 - Masks are produced by comparisons, `.like()`, `.isin()`, etc.
 
 ### 1.4 Disallowed forms
@@ -47,11 +47,11 @@ Rules:
 - broadcasting  
 - multi-dimensional indexing  
 
-PyVector deliberately avoids "fancy indexing" to keep semantics simple.
+Jib deliberately avoids "fancy indexing" to keep semantics simple.
 
-## 2. PyTable Indexing
+## 2. Table Indexing
 
-PyTable supports **only single-axis indexing**, but operations are
+Table supports **only single-axis indexing**, but operations are
 composable: column selection followed by row slicing (or vice-versa).
 
 This preserves clarity and matches the column-major design.
@@ -75,7 +75,7 @@ t[i:j]
 t[:]
 ```
 
-Returns a new PyTable containing a subset of rows.
+Returns a new Table containing a subset of rows.
 
 #### Boolean mask
 
@@ -86,7 +86,7 @@ t[mask]
 Filters rows across all columns.
 
 Mask rules:
-- must be a PyVector(bool) of length equal to the number of rows
+- must be a Vector(bool) of length equal to the number of rows
 - mask creation is separate from filtering
 - **only boolean masks filter rows** (never columns)
 
@@ -101,7 +101,7 @@ t['col']
 t.col
 ```
 
-Returns a PyVector.
+Returns a Vector.
 
 #### Tuple of names (multi-column select)
 
@@ -109,7 +109,7 @@ Returns a PyVector.
 t['a', 'b', 'c']
 ```
 
-Returns a new PyTable containing those columns (in order).
+Returns a new Table containing those columns (in order).
 
 **Name resolution:**
 - Full column names are always valid.
@@ -125,7 +125,7 @@ t.cols([2, 5, 7])
 t.cols(slice(3, 8))
 ```
 
-Returns a new PyTable with only the specified columns.
+Returns a new Table with only the specified columns.
 
 #### Chaining is fully supported
 
@@ -149,7 +149,7 @@ t[i, j:k]
 t[i:j, k:l]
 ```
 
-PyTable never interprets a tuple of length 2 as multi-axis indexing.
+Table never interprets a tuple of length 2 as multi-axis indexing.
 
 #### No list × list indexing
 
@@ -183,7 +183,7 @@ Column names are always used in **single-axis column selection**.
 
 ### Column-first selection (preferred for large datasets)
 
-Because PyTable is column-major, selecting columns first reduces the memory
+Because Table is column-major, selecting columns first reduces the memory
 footprint and speeds up operations:
 
 ```python
@@ -210,7 +210,7 @@ Either direction is legal and predictable.
 
 ## 4. Design Philosophy
 
-- PyTable is column-major; columns are the primary structural axis.
+- Table is column-major; columns are the primary structural axis.
 - Indexing is single-axis, but fully composable.
 - Only integer, slice, or boolean mask indexing is allowed on rows.
 - Only names or `.cols()` are allowed for column selection.
@@ -222,3 +222,4 @@ Either direction is legal and predictable.
 The model is intentionally strict, minimal, and easy to reason about.
 It is designed for clarity, correctness, and high user ergonomics rather than
 feature maximalism.
+
