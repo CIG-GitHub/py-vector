@@ -47,7 +47,7 @@ Rules:
 - broadcasting  
 - multi-dimensional indexing  
 
-Vector deliberately avoids "fancy indexing" to keep semantics simple.
+Jib deliberately avoids "fancy indexing" to keep semantics simple.
 
 ## 2. Table Indexing
 

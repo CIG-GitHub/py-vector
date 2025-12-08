@@ -1,4 +1,4 @@
-# Vector Design Invariants
+# Jib Design Invariants
 
 These rules define the contract of the library.  
 Breaking any of them requires updating this file and providing strong rationale.
