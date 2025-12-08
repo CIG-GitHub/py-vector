@@ -1,6 +1,6 @@
 # jib
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-[![Tests](https://github.com/CIG-GitHub/jib/actions/workflows/tests.yml/badge.svg)](https://github.com/CIG-GitHub/jib/actions/workflows/tests.yml)
+[![Tests](https://github.com/CIG-GitHub/serif/actions/workflows/tests.yml/badge.svg)](https://github.com/CIG-GitHub/serif/actions/workflows/tests.yml)
 
 A clean, typed, composable data layer for Python, built on **Vector** and **Table**.
 
@@ -9,7 +9,7 @@ Vector provides the foundation; Table is your primary tool for readable data mod
 ## 30-Second Example
 
 ```python
-from jib import Table
+from serif import Table
 
 # Create a table with automatic column name sanitization
 t = Table({
@@ -35,7 +35,7 @@ t
 ## Real-World Example: Interactive CSV Exploration
 
 ```python
-from jib import read_csv
+from serif import read_csv
 
 t = read_csv("sales.csv")  # Messy column names? No problem.
 
@@ -66,17 +66,17 @@ t
 ## Installation
 
 ```bash
-pip install jib
+pip install serif
 ```
 
 Zero external dependencies. In a fresh environment:
 
 ```bash
 pip freeze
-# jib==0.x.y
+# serif==0.x.y
 ```
 
-## Why jib?
+## Why serif?
 
 - Explicit, predictable vector semantics
 - Tables compose cleanly from vectors
@@ -91,7 +91,7 @@ pip freeze
 ### Vectors: elementwise operations
 
 ```python
-from jib import Vector
+from serif import Vector
 
 a = Vector([1, 2, 3, 4, 5])
 b = Vector([10, 20, 30, 40, 50])
@@ -104,7 +104,7 @@ a > 3           # Vector([False, False, False, True, True])
 ### Tables: compose vectors with `>>`
 
 ```python
-from jib import Table
+from serif import Table
 
 # Column names auto-sanitize to valid Python attributes
 t = Table({
@@ -283,7 +283,7 @@ len(v)    # 3 (None counted)
 ## Just Write Python
 
 Not every task fits neatly into a vectorized expression.
-When a loop is the clearest approach, jib keeps it efficient.
+When a loop is the clearest approach, serif keeps it efficient.
 
 `for row in table:` is fully supported and stays lightweight, so you can use
 whichever style makes the code easiest to understand.
@@ -291,7 +291,7 @@ whichever style makes the code easiest to understand.
 
 ## Design Philosophy
 
-jib makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
+serif makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
 
 **What you get:**
 - Readable, debuggable code
@@ -300,7 +300,7 @@ jib makes a **strategic choice**: clarity and workflow ergonomics over raw speed
 - Zero dependencies
 - O(1) fingerprinting for change detection
 
-**When to use jib:**
+**When to use serif:**
 - Modeling-scale data (10K–1M rows)
 - Correctness and maintainability matter most
 - Interactive workflows (Jupyter notebooks, REPL)

@@ -1,7 +1,7 @@
 """Table specific tests - 2D operations, column access, matrix operations"""
 import pytest
-from jib import Vector
-from jib import Table
+from serif import Vector
+from serif import Table
 
 
 class TestTableCreation:

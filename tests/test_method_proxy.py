@@ -6,7 +6,7 @@ This tests the refactored __getattr__ that automatically distinguishes between:
 - Methods (like str.replace) → return MethodProxy that waits for ()
 """
 
-from jib import Vector
+from serif import Vector
 from datetime import date
 
 

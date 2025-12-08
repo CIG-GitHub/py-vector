@@ -47,7 +47,7 @@ Rules:
 - broadcasting  
 - multi-dimensional indexing  
 
-Jib deliberately avoids "fancy indexing" to keep semantics simple.
+Serif deliberately avoids "fancy indexing" to keep semantics simple.
 
 ## 2. Table Indexing
 

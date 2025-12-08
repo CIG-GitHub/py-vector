@@ -1,4 +1,4 @@
-# Jib Design Philosophy
+# Serif Design Philosophy
 
 Jib is intentionally small, predictable, and Pythonic.  
 Its goal is not to compete with full-fledged analytics engines, but to provide a clean, minimal foundation for vectors, tables, and lightweight transformations that integrate naturally with Python and the UI systems built on top of it.

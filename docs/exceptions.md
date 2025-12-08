@@ -4,73 +4,73 @@ Vector raises specific exception types for clear error handling.
 
 ## Exception Types
 
-### JibKeyError
+### SerifKeyError
 Subclass of `KeyError`. Raised when:
 - Column not found in table
 - Key missing in dictionary operations
 
 ```python
-from jib import JibKeyError
+from serif import SerifKeyError
 
 try:
     column = table['missing_column']
-except JibKeyError:
+except SerifKeyError:
     print("Column not found")
 ```
 
-### JibValueError
+### SerifValueError
 Subclass of `ValueError`. Raised when:
 - Invalid values provided
 - Mismatched lengths in operations
 - Invalid join key configurations
 
 ```python
-from jib import JibValueError
+from serif import SerifValueError
 
 try:
     table.inner_join(other, left_on=['a', 'b'], right_on=['x'])
-except JibValueError:
+except SerifValueError:
     print("Mismatched join key lengths")
 ```
 
-### JibTypeError
+### SerifTypeError
 Subclass of `TypeError`. Raised when:
 - Invalid types provided to type-safe vectors
 - Type mismatches in operations
 
 ```python
-from jib import JibTypeError
+from serif import SerifTypeError
 
 try:
     result = typesafe_int_vector + "string"
-except JibTypeError:
+except SerifTypeError:
     print("Type mismatch")
 ```
 
-### JibIndexError
+### SerifIndexError
 Subclass of `IndexError`. Raised when:
 - Out-of-bounds indexing
 - Invalid slice operations
 
 ```python
-from jib import JibIndexError
+from serif import SerifIndexError
 
 try:
     value = vector[1000]  # index out of range
-except JibIndexError:
+except SerifIndexError:
     print("Index out of bounds")
 ```
 
 ## Broad Exception Catching
 
-All custom exceptions inherit from `JibError`:
+All custom exceptions inherit from `SerifError`:
 
 ```python
-from jib import JibError
+from serif import SerifError
 
 try:
     # ... operations ...
-except JibError:
+except SerifError:
     # Catch all Vector-specific errors
     pass
 ```

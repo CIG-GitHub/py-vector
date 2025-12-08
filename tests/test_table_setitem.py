@@ -3,8 +3,8 @@ Test Table.__setitem__ with comprehensive slice coverage.
 """
 
 import pytest
-from jib import Vector, Table
-from jib.errors import JibKeyError, JibValueError, JibTypeError
+from serif import Vector, Table
+from serif.errors import SerifKeyError, SerifValueError, SerifTypeError
 
 
 class TestScalarAssignment:
@@ -97,7 +97,7 @@ class TestRowAssignment:
 	
 	def test_row_assignment_length_mismatch(self):
 		t = Table({'a': [1, 2], 'b': [3, 4]})
-		with pytest.raises(JibValueError, match="length mismatch"):
+		with pytest.raises(SerifValueError, match="length mismatch"):
 			t[0, :] = [1, 2, 3]  # Too many values
 
 
@@ -152,7 +152,7 @@ class TestRectangularAssignment:
 	def test_assign_table_column_mismatch(self):
 		t = Table({'a': [1, 2], 'b': [3, 4]})
 		source = Table({'x': [10]})
-		with pytest.raises(JibValueError, match="Column count mismatch"):
+		with pytest.raises(SerifValueError, match="Column count mismatch"):
 			t[:, :] = source
 
 
@@ -178,7 +178,7 @@ class TestListOfColumnsAssignment:
 	
 	def test_assign_list_shape_mismatch(self):
 		t = Table({'a': [1, 2], 'b': [3, 4]})
-		with pytest.raises(JibValueError, match="Shape mismatch"):
+		with pytest.raises(SerifValueError, match="Shape mismatch"):
 			t[:, :] = [[1, 2], [3, 4], [5, 6]]  # Too many columns
 
 
@@ -210,7 +210,7 @@ class TestSliceEdgeCases:
 	def test_assign_string_scalar_fails(self):
 		# Can't assign string to int vector without explicit conversion
 		t = Table({'x': [1, 2, 3]})
-		with pytest.raises(JibTypeError, match="Cannot set str in int vector"):
+		with pytest.raises(SerifTypeError, match="Cannot set str in int vector"):
 			t[0, 'x'] = "hello"
 	
 	def test_assign_to_entire_table(self):
@@ -225,17 +225,17 @@ class TestErrorConditions:
 	
 	def test_invalid_column_name(self):
 		t = Table({'x': [1, 2]})
-		with pytest.raises(JibKeyError, match="not found"):
+		with pytest.raises(SerifKeyError, match="not found"):
 			t[0, 'nonexistent'] = 5
 	
 	def test_invalid_key_dimension(self):
 		t = Table({'x': [1, 2]})
-		with pytest.raises(JibKeyError, match="requires 1D .* or 2D"):
+		with pytest.raises(SerifKeyError, match="requires 1D .* or 2D"):
 			t[0, 0, 0] = 5
 	
 	def test_unsupported_value_type(self):
 		t = Table({'x': [1, 2]})
-		with pytest.raises(JibTypeError, match="Unsupported assignment value type"):
+		with pytest.raises(SerifTypeError, match="Unsupported assignment value type"):
 			t[:, 'x'] = {1: 'a', 2: 'b'}  # Dict not supported
 
 

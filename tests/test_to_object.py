@@ -3,8 +3,8 @@ Test Vector.to_object() conversion method.
 """
 
 import pytest
-from jib import Vector
-from jib.errors import JibTypeError
+from serif import Vector
+from serif.errors import SerifTypeError
 
 
 def test_to_object_basic():
@@ -45,7 +45,7 @@ def test_to_object_preserves_display_as_row():
 def test_int_vector_rejects_string():
 	"""Test that int vector rejects string assignment"""
 	a = Vector([1, 2, 3, 4])
-	with pytest.raises(JibTypeError, match="Cannot set str in int vector"):
+	with pytest.raises(SerifTypeError, match="Cannot set str in int vector"):
 		a[2] = "ryan"
 
 

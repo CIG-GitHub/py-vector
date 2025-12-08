@@ -1,6 +1,6 @@
 """Basic Vector operations - creation, length, iteration, copy"""
 import pytest
-from jib import Vector
+from serif import Vector
 
 
 class TestCreation:

@@ -5,10 +5,10 @@ import math
 from builtins import isinstance as b_isinstance
 
 from .alias_tracker import _ALIAS_TRACKER, AliasError
-from .errors import JibTypeError
-from .errors import JibIndexError
-from .errors import JibValueError
-from .errors import JibKeyError
+from .errors import SerifTypeError
+from .errors import SerifIndexError
+from .errors import SerifValueError
+from .errors import SerifKeyError
 from .display import _printr
 from .naming import _sanitize_user_name
 from .naming import _uniquify
@@ -363,7 +363,7 @@ class Vector():
 						name=self._name,
 						as_row=self._display_as_row
 					)
-				except JibTypeError:
+				except SerifTypeError:
 					raise ValueError(
 						f"fillna: value {value!r} (type {type(value).__name__}) "
 						f"cannot be used with {dtype.kind.__name__} vector. "
@@ -490,7 +490,7 @@ class Vector():
 
 		if isinstance(key, tuple):
 			if len(key) != len(self.shape):
-				raise JibKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
+				raise SerifKeyError(f"Matrix indexing must provide an index in each dimension: {self.shape}")
 			if len(key) == 1:
 				return self[key[0]]
 			return self._underlying[key[-1]][key[:-1]]
@@ -518,7 +518,7 @@ class Vector():
 			if len(self) > 1000:
 				warnings.warn('Subscript indexing is sub-optimal for large vectors')
 			return self.copy((self[x] for x in key), name=self._name)
-		raise JibTypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
+		raise SerifTypeError(f'Vector indices must be boolean vectors, integer vectors or integers, not {str(type(key))}')
 
 
 	def __setitem__(self, key, value):
@@ -567,7 +567,7 @@ class Vector():
 			isinstance(key, list) and all(isinstance(e, bool) for e in key)
 		):
 			if len(key) != n:
-				raise JibValueError("Boolean mask length must match vector length.")
+				raise SerifValueError("Boolean mask length must match vector length.")
 
 			# Precompute true indices (much faster than branch-per-element)
 			true_indices = [i for i, flag in enumerate(key) if flag]
@@ -575,7 +575,7 @@ class Vector():
 
 			if is_seq_val:
 				if tcount != len(value):
-					raise JibValueError(
+					raise SerifValueError(
 						"Iterable length must match number of True mask elements."
 					)
 				for idx, v in zip(true_indices, value):
@@ -593,7 +593,7 @@ class Vector():
 
 			if is_seq_val:
 				if slice_len != len(value):
-					raise JibValueError("Slice length and value length must match.")
+					raise SerifValueError("Slice length and value length must match.")
 				values_to_assign = value
 			else:
 				# repeat the scalar
@@ -612,7 +612,7 @@ class Vector():
 			if key < 0:
 				key += n
 			if not (0 <= key < n):
-				raise JibIndexError(
+				raise SerifIndexError(
 					f"Index {key} out of range for vector length {n}"
 				)
 			append_update(key, value)
@@ -627,21 +627,21 @@ class Vector():
 		):
 			if is_seq_val:
 				if len(key) != len(value):
-					raise JibValueError(
+					raise SerifValueError(
 						"Index-vector length must match value length."
 					)
 				for idx, val in zip(key, value):
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise JibIndexError(f"Index {idx} out of range.")
+						raise SerifIndexError(f"Index {idx} out of range.")
 					append_update(idx, val)
 			else:
 				for idx in key:
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise JibIndexError(f"Index {idx} out of range.")
+						raise SerifIndexError(f"Index {idx} out of range.")
 					append_update(idx, value)
 
 		# =====================================================================
@@ -653,23 +653,23 @@ class Vector():
 		):
 			if is_seq_val:
 				if len(key) != len(value):
-					raise JibValueError("Index list must match value length.")
+					raise SerifValueError("Index list must match value length.")
 				for idx, val in zip(key, value):
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise JibIndexError(f"Index {idx} out of range.")
+						raise SerifIndexError(f"Index {idx} out of range.")
 					append_update(idx, val)
 			else:
 				for idx in key:
 					if idx < 0:
 						idx += n
 					if not (0 <= idx < n):
-						raise JibIndexError(f"Index {idx} out of range.")
+						raise SerifIndexError(f"Index {idx} out of range.")
 					append_update(idx, value)
 
 		else:
-			raise JibTypeError(
+			raise SerifTypeError(
 				f"Invalid key type: {type(key)}. Must be boolean mask, slice, int, "
 				"integer vector, or list/tuple of ints."
 			)
@@ -695,8 +695,8 @@ class Vector():
 					try:
 						self._promote(required_dtype.kind)
 						underlying = self._underlying
-					except JibTypeError:
-						raise JibTypeError(
+					except SerifTypeError:
+						raise SerifTypeError(
 							f"Cannot set {required_dtype.kind.__name__} in "
 							f"{self._dtype.kind.__name__} vector. "
 							f"Promotion not supported."
@@ -870,7 +870,7 @@ class Vector():
 							name=None,
 							as_row=self._display_as_row)
 		except TypeError as e:
-			raise JibTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.kind.__name__}' and '{type(other).__name__}'.")
+			raise SerifTypeError(f"Unsupported operand type(s) for '{op_symbol}': '{self._dtype.kind.__name__}' and '{type(other).__name__}'.")
 
 	def _unary_operation(self, op_func, op_name: str):
 		"""Helper function to handle unary operations on each element."""
@@ -960,7 +960,7 @@ class Vector():
 					vals.append(x + y)
 			return Vector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
 		
-		raise JibTypeError(f"Unsupported operand type: {type(other).__name__}")
+		raise SerifTypeError(f"Unsupported operand type: {type(other).__name__}")
 
 	def __rmul__(self, other):
 		return self.__mul__(other)
@@ -990,7 +990,7 @@ class Vector():
 			# Python type like int, float
 			target_kind = new_dtype
 		else:
-			raise JibTypeError(f"new_dtype must be a DataType instance or Python type, not {type(new_dtype).__name__}")
+			raise SerifTypeError(f"new_dtype must be a DataType instance or Python type, not {type(new_dtype).__name__}")
 			
 		# Already the target type
 		if self._dtype.kind is target_kind:
@@ -1020,7 +1020,7 @@ class Vector():
 			self._dtype = DataType(datetime, nullable=self._dtype.nullable)
 		else:
 			# For backwards compat, raise error if trying invalid promotion
-			raise JibTypeError(f'Cannot convert Vector from {self._dtype.kind.__name__} to {target_kind.__name__}.')
+			raise SerifTypeError(f'Cannot convert Vector from {self._dtype.kind.__name__} to {target_kind.__name__}.')
 		return
 
 	def ndims(self):
@@ -1216,7 +1216,7 @@ class Vector():
 				cols = self.cols() 
 				
 				if len(cols) != len(other):
-						raise JibValueError(f"Dim mismatch: Matrix cols {len(cols)} != Vector len {len(other)}")
+						raise SerifValueError(f"Dim mismatch: Matrix cols {len(cols)} != Vector len {len(other)}")
 				
 				# OPTIMIZATION: Access other._underlying directly to avoid index overhead in loop
 				scalars = other._underlying
@@ -1253,7 +1253,7 @@ class Vector():
 		if len(self) != len(other):
 			raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 		return sum(x*y for x, y in zip(self._underlying, other, strict=True))
-		raise JibTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
+		raise SerifTypeError(f"Unsupported operand type(s) for '*': '{self._dtype.__name__}' and '{type(other).__name__}'.")
 
 
 	def __bool__(self):
@@ -1277,7 +1277,7 @@ class Vector():
 
 		if isinstance(other, Vector):
 			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
+				raise SerifTypeError("Cannot concatenate two typesafe Vectors of different types")
 			return Vector(self._underlying + other._underlying,
 				dtype=self._dtype)
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
@@ -1295,12 +1295,12 @@ class Vector():
 
 		if type(other).__name__ == 'Table':
 			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
+				raise SerifTypeError("Cannot concatenate two typesafe Vectors of different types")
 			return Vector((self,) + other.cols(),
 				dtype=self._dtype)
 		if isinstance(other, Vector):
 			if not self._dtype.nullable and not other.schema().nullable and self._dtype.kind != other.schema().kind:
-				raise JibTypeError("Cannot concatenate two typesafe Vectors of different types")
+				raise SerifTypeError("Cannot concatenate two typesafe Vectors of different types")
 			return Vector((self,) + (other,),
 				dtype=self._dtype)
 		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
@@ -1309,7 +1309,7 @@ class Vector():
 		elif not self:
 			return Vector((other,),
 				dtype=self._dtype)
-		raise JibTypeError("Cannot add a column of constant values. Try using Vector.new(element, length).")
+		raise SerifTypeError("Cannot add a column of constant values. Try using Vector.new(element, length).")
 
 	def __rlshift__(self, other):
 		""" The << operator behavior has been overridden to attempt to concatenate (append)

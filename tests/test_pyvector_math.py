@@ -1,6 +1,6 @@
 """Vector math operations - addition, multiplication, division, etc."""
 import pytest
-from jib import Vector
+from serif import Vector
 
 
 class TestAddition:

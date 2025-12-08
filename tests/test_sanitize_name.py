@@ -1,7 +1,7 @@
 import pytest
-from jib import Vector
-from jib.naming import _sanitize_user_name
-from jib import Table
+from serif import Vector
+from serif.naming import _sanitize_user_name
+from serif import Table
 
 
 def test_sanitize_simple_name():

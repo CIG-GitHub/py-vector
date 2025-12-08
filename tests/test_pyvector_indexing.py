@@ -1,6 +1,6 @@
 """Vector indexing - single index, slicing, boolean masks, integer vectors"""
 import pytest
-from jib import Vector
+from serif import Vector
 
 
 class TestSingleIndexing:

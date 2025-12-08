@@ -1,6 +1,6 @@
 """_Int specific tests - int method proxying"""
 import pytest
-from jib import Vector, _Int
+from serif import Vector, _Int
 
 
 class TestIntCreation:

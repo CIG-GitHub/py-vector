@@ -1,5 +1,5 @@
 """
-jib: A Pythonic, zero-dependency vector and table library
+serif: A Pythonic, zero-dependency vector and table library
 
 Designed for Python users who need to work with datasets beyond Excel's limits
 (>1000 rows) but want the ease-of-use and intuitive feel of Excel or SQL.
@@ -20,7 +20,7 @@ Zero external dependencies - pure Python stdlib only.
 from .alias_tracker import _ALIAS_TRACKER, AliasError
 from .vector import Vector, _Float, _Int, _String, _Date
 from .table import Table
-from .errors import JibError, JibKeyError, JibValueError, JibTypeError, JibIndexError
+from .errors import SerifError, SerifKeyError, SerifValueError, SerifTypeError, SerifIndexError
 from .csv import read_csv
 from .typing import DataType
 
@@ -31,9 +31,9 @@ __all__ = [
 	"read_csv",
 	"DataType",
 	"AliasError",
-	"JibError",
-	"JibKeyError",
-	"JibValueError",
-	"JibTypeError",
-	"JibIndexError"
+	"SerifError",
+	"SerifKeyError",
+	"SerifValueError",
+	"SerifTypeError",
+	"SerifIndexError"
 ]

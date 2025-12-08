@@ -1,7 +1,7 @@
 """Test that aggregate preserves order of first appearance (stable sort behavior)."""
 import pytest
-from jib.vector import Vector
-from jib.table import Table
+from serif.vector import Vector
+from serif.table import Table
 
 
 class TestAggregateSortOrder:

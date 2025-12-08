@@ -1,6 +1,6 @@
 import warnings
-from jib import Vector
-from jib import Table
+from serif import Vector
+from serif import Table
 
 
 def test_aggregate_over_no_warnings_and_correct_keys():

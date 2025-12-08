@@ -1,7 +1,7 @@
 """_Date specific tests - date method proxying and operations"""
 import pytest
 from datetime import date, datetime
-from jib import Vector, _Date
+from serif import Vector, _Date
 
 
 class TestDateCreation:
