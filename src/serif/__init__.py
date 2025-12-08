@@ -24,7 +24,7 @@ from .errors import SerifError, SerifKeyError, SerifValueError, SerifTypeError, 
 from .csv import read_csv
 from .typing import DataType
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 __all__ = [
 	"Vector", 
 	"Table",
