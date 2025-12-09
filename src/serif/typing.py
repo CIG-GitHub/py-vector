@@ -195,7 +195,9 @@ def infer_kind(value: Any) -> Optional[Type]:
     if isinstance(value, tuple):
         return tuple
     
-    return object
+    # For any other type, return its actual type instead of generic 'object'
+    # This allows uniform columns (e.g., all decimal.Decimal) to show the specific type
+    return type(value)
 
 
 def infer_dtype(values: Iterable[Any]) -> DataType:

@@ -214,7 +214,7 @@ class Table(Vector):
 		"""Return list of available attributes including sanitized column names."""
 		# Use object.__dir__ to get instance attributes, then add column names
 		base_attrs = object.__dir__(self)
-		return sorted(set(base_attrs + list(self._build_column_map().keys())))
+		return set(list(self._build_column_map().keys()) + base_attrs)
 	
 	def column_names(self):
 		"""Return list of column names (original names, not sanitized).
