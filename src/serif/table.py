@@ -1817,5 +1817,123 @@ class Table(Vector):
 		# ----------------------------------------------------------------------
 		return Table(result_cols)
 
+	def sort_by(self, by, reverse=False, na_last=True):
+		"""
+		Return a new Table sorted by one or more keys.
 
+		Parameters
+		----------
+		by : Vector | str | sequence[Vector | str]
+			Sort key(s). Each key may be:
+			- a Vector (typically a column from this table), or
+			- a column name (string), resolved via self[<name>].
+		reverse : bool | sequence[bool], default False
+			Sort order for each key:
+			- bool: same order for all keys
+			- sequence[bool]: per-key reverse flag, must match length of `by`.
+		na_last : bool, default True
+			If True, None sorts after all valid values.
+			If False, None sorts before all valid values.
 
+		Notes
+		-----
+		- Sorting is stable.
+		- The table is not modified in place; a new Table is returned.
+		
+		Examples
+		--------
+		>>> t.sort_by(t.name)  # ascending
+		>>> t.sort_by(t.name, reverse=True)  # descending
+		>>> t.sort_by([t.name, t.age], reverse=[False, True])  # mixed
+		>>> t.sort_by((t.name, t.age), reverse=True)  # both descending
+		>>> t.sort_by(t.score, na_last=False)  # None values first
+		"""
+		# --- 1. Normalize `by` into a list of specs ---
+		if isinstance(by, (str, Vector)):
+			keys = [by]
+		elif isinstance(by, (list, tuple)):
+			if not by:
+				raise SerifValueError("sort_by() requires at least one sort key")
+			keys = list(by)
+		else:
+			raise SerifTypeError(
+				f"sort_by() expects a Vector, column name, or sequence of these; "
+				f"got {type(by).__name__}"
+			)
+
+		# --- 2. Normalize `reverse` to list[bool] ---
+		if isinstance(reverse, bool):
+			rev_flags = [reverse] * len(keys)
+		elif isinstance(reverse, (list, tuple)):
+			if len(reverse) != len(keys):
+				raise SerifValueError(
+					f"reverse has length {len(reverse)}, but sort keys have length {len(keys)}"
+				)
+			rev_flags = [bool(x) for x in reverse]
+		else:
+			raise SerifTypeError(
+				f"reverse must be bool or sequence[bool], got {type(reverse).__name__}"
+			)
+
+		# --- 3. Resolve all keys to Vector columns from this table ---
+		resolved = []
+		nrows = len(self)
+
+		for spec in keys:
+			if isinstance(spec, Vector):
+				col = spec
+				if len(col) != nrows:
+					raise SerifValueError(
+						f"Sort key has length {len(col)}, but table has {nrows} rows"
+					)
+			elif isinstance(spec, str):
+				# Reuse existing column lookup semantics
+				col = self[spec]
+			else:
+				raise SerifTypeError(
+					f"Sort key must be Vector or str, got {type(spec).__name__}"
+				)
+			resolved.append(col)
+
+		# --- 4. Edge case: empty table ---
+		if nrows == 0:
+			# Preserve columns / names but with no rows
+			new_cols = [Vector([], name=col._name) for col in self._underlying]
+			return Table(new_cols)
+
+		# --- 5. Build sorted row index using stable multi-key sort ---
+		indices = list(range(nrows))
+
+		# Stable sort: apply keys from last to first
+		for col, rev in reversed(list(zip(resolved, rev_flags))):
+			data = col._underlying
+
+			def key_fn(i, data=data, rev=rev, na_last=na_last):
+				v = data[i]
+				is_none = (v is None)
+
+				if na_last:
+					# Nones should be last for BOTH rev=False and rev=True
+					# rev=False -> flag = True for None, False for non-None
+					# rev=True  -> flip so None is still "worse" after reversal
+					flag = is_none if not rev else (not is_none)
+				else:
+					# Nones should be first for BOTH rev=False and rev=True
+					# rev=False -> flag = False for None, True for non-None
+					# rev=True  -> flip so None is still "better" after reversal
+					flag = (not is_none) if not rev else is_none
+
+				# Compare on (flag, value). Bool is orderable; `v` is only compared
+				# among non-None values, which is what you require for the column.
+				return (flag, v)
+
+			indices.sort(key=key_fn, reverse=rev)
+
+		# --- 6. Rebuild columns in sorted order ---
+		new_cols = []
+		for col in self._underlying:
+			src = col._underlying
+			new_data = [src[i] for i in indices]
+			new_cols.append(Vector(new_data, name=col._name))
+
+		return Table(new_cols)

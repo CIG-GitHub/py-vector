@@ -1131,7 +1131,7 @@ class Vector():
 		
 		return Vector(results)
 
-	def sort_values(self, reverse=False, na_last=True):
+	def sort_by(self, reverse=False, na_last=True):
 		"""
 		Stable sort. Returns a new Vector.
 
