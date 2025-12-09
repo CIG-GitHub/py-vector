@@ -25,7 +25,7 @@ from .csv import read_csv
 from .typing import DataType
 from .display import set_repr_rows
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
 	"Vector", 
 	"Table",
