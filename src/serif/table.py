@@ -130,6 +130,7 @@ class Row(Vector):
 class Table(Vector):
 	""" Multiple columns of the same length """
 	_length = None
+	_repr_rows = None  # Optional table-specific repr row count override
 	
 	def __new__(cls, initial=(), dtype=None, name=None, as_row=False):
 		return super(Vector, cls).__new__(cls)
@@ -282,7 +283,7 @@ class Table(Vector):
 	def __setattr__(self, attr, value):
 		"""Intercept column assignments (t.colname = vec) to update underlying columns."""
 		# Let instance attributes initialize normally (before __init__ completes)
-		if attr in ('_underlying', '_length', '_column_map', '_dtype', '_name', '_display_as_row', '_fp', '_fp_powers', '_wild'):
+		if attr in ('_underlying', '_length', '_column_map', '_dtype', '_name', '_display_as_row', '_fp', '_fp_powers', '_wild', '_repr_rows'):
 			object.__setattr__(self, attr, value)
 			return
 		

@@ -7,8 +7,27 @@ from .naming import _get_reserved_names
 
 
 # How many rows/columns to show before inserting "..."
-MAX_HEAD_ROWS = 5
+_REPR_ROWS_DEFAULT = 12  # Global default for total rows shown (head+tail)
 MAX_HEAD_COLS = 5
+
+
+def set_repr_rows(n: int | None):
+	"""Set the default number of rows shown in Table.__repr__.
+	
+	Parameters
+	----------
+	n : int | None
+		Total rows to show (head+tail). If None, reset to library default (12).
+		
+	Examples
+	--------
+	>>> import serif
+	>>> serif.set_repr_rows(20)  # Show 20 rows total (10 head + 10 tail)
+	>>> # All future table reprs will show 20 rows
+	>>> serif.set_repr_rows(None)  # Reset to default
+	"""
+	global _REPR_ROWS_DEFAULT
+	_REPR_ROWS_DEFAULT = n if n is not None else 12
 
 
 def _needs_quote(name: str) -> bool:
@@ -47,8 +66,12 @@ def _needs_quote(name: str) -> bool:
 	return False
 
 
-def _format_column(col, max_preview: int = MAX_HEAD_ROWS) -> List[str]:
+def _format_column(col, max_preview: int | None = None) -> List[str]:
 	"""Returns a list of strings representing that column, truncated for display."""
+	# Use global default if not specified
+	if max_preview is None:
+		max_preview = _REPR_ROWS_DEFAULT // 2
+	
 	# Truncate with symmetric preview
 	vals = col._underlying
 	if len(vals) > max_preview * 2:
@@ -291,6 +314,11 @@ def _repr_table(tbl) -> str:
 	"""Pretty repr for a 2D Table."""
 	from .naming import _sanitize_user_name, _uniquify
 	
+	# Check if table has custom repr_rows setting
+	max_preview = None
+	if hasattr(tbl, '_repr_rows') and tbl._repr_rows is not None:
+		max_preview = tbl._repr_rows // 2
+	
 	cols = tbl.cols()
 	num_cols = len(cols)
 
@@ -321,7 +349,7 @@ def _repr_table(tbl) -> str:
 			dtypes_all.append("object")
 
 	# Format columns
-	formatted_cols = [_format_column(cols[i]) for i in col_indices]
+	formatted_cols = [_format_column(cols[i], max_preview=max_preview) for i in col_indices]
 
 	# Insert "..." column if truncated
 	if truncated:

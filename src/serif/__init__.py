@@ -23,6 +23,7 @@ from .table import Table
 from .errors import SerifError, SerifKeyError, SerifValueError, SerifTypeError, SerifIndexError
 from .csv import read_csv
 from .typing import DataType
+from .display import set_repr_rows
 
 __version__ = "0.1.0"
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
 	"Table",
 	"read_csv",
 	"DataType",
+	"set_repr_rows",
 	"AliasError",
 	"SerifError",
 	"SerifKeyError",
