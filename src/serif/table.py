@@ -249,6 +249,36 @@ class Table(Vector):
 			# Attribute not found - raise AttributeError for Pythonic behavior
 			raise AttributeError(f"{self.__class__.__name__!s} object has no attribute '{attr}'")
 
+	def _resolve_column(self, spec):
+		"""
+		Resolve a column specification to a Vector.
+		
+		Parameters
+		----------
+		spec : str | Vector
+			Column name (string) or Vector instance
+		
+		Returns
+		-------
+		Vector
+			Resolved column from this table
+		
+		Raises
+		------
+		SerifKeyError
+			If column name not found
+		SerifTypeError
+			If spec is neither str nor Vector
+		"""
+		if isinstance(spec, str):
+			return self[spec]
+		elif isinstance(spec, Vector):
+			return spec
+		else:
+			raise SerifTypeError(
+				f"Column specification must be string or Vector, got {type(spec).__name__}"
+			)
+
 	def __setattr__(self, attr, value):
 		"""Intercept column assignments (t.colname = vec) to update underlying columns."""
 		# Let instance attributes initialize normally (before __init__ completes)
@@ -762,31 +792,15 @@ class Table(Vector):
 		"""
 		from datetime import date, datetime
 		
-		# Helper: Resolve column from name or Vector, validate ownership
+		# Helper: Resolve column from name or Vector
 		def get_column(table, col_spec, side_name):
-			# CASE 1 — string column name
-			if isinstance(col_spec, str):
-				try:
-					col = table[col_spec]
-				except (KeyError, ValueError):
-					raise _missing_col_error(
-						col_spec,
-						context=f"{side_name} table"
-					)
-			
-			# CASE 2 — direct Vector
-			elif isinstance(col_spec, Vector):
-				col = col_spec
-				# Note: Column ownership validation could be added here if Vector
-				# gains a _parent_table attribute in the future
-			
-			else:
-				raise SerifValueError(
-					f"Column specification must be string or Vector, got "
-					f"{type(col_spec).__name__}"
+			try:
+				return table._resolve_column(col_spec)
+			except (SerifKeyError, ValueError):
+				raise _missing_col_error(
+					col_spec if isinstance(col_spec, str) else "column",
+					context=f"{side_name} table"
 				)
-			
-			return col
 		
 		# Helper: Validate column dtype for join keys (static type check)
 		def validate_key_dtype(col, side_name, idx):
@@ -1368,14 +1382,20 @@ class Table(Vector):
 		# ------------------------------------------------------------------
 		# 1. Normalize inputs
 		# ------------------------------------------------------------------
-		if isinstance(over, Vector):
+		if isinstance(over, (str, Vector)):
 			over = [over]
 		
-		# Normalize all agg lists
+		# Resolve string column names to Vectors
+		over = [self._resolve_column(col) for col in over]
+		
+		# Normalize aggregation lists and resolve column names
 		def normalize(v):
 			if v is None:
 				return None
-			return v if isinstance(v, list) else [v]
+			if isinstance(v, (str, Vector)):
+				return [self._resolve_column(v)]
+			# It's a list/tuple
+			return [self._resolve_column(col) for col in v]
 		
 		sum_over   = normalize(sum_over)
 		mean_over  = normalize(mean_over)
@@ -1554,9 +1574,10 @@ class Table(Vector):
 		# ------------------------------------------------------------------
 		if apply is not None:
 			for agg_name, (col, func) in apply.items():
-				if len(col) != nrows:
+				resolved_col = self._resolve_column(col)
+				if len(resolved_col) != nrows:
 					raise SerifValueError(f"Custom aggregation column '{agg_name}' has wrong length")
-				d = col._underlying
+				d = resolved_col._underlying
 				out = []
 				for key, row_indices in group_items:
 					vals = [d[i] for i in row_indices]
@@ -1617,12 +1638,20 @@ class Table(Vector):
 		# ----------------------------------------------------------------------
 		# 1. Normalize inputs
 		# ----------------------------------------------------------------------
-		if isinstance(over, Vector):
+		if isinstance(over, (str, Vector)):
 			over = [over]
 		
-		# Normalize aggregation lists
+		# Resolve string column names to Vectors
+		over = [self._resolve_column(col) for col in over]
+		
+		# Normalize aggregation lists and resolve column names
 		def norm(v):
-			return None if v is None else (v if isinstance(v, list) else [v])
+			if v is None:
+				return None
+			if isinstance(v, (str, Vector)):
+				return [self._resolve_column(v)]
+			# It's a list/tuple
+			return [self._resolve_column(col) for col in v]
 		
 		sum_over   = norm(sum_over)
 		mean_over  = norm(mean_over)
@@ -1801,9 +1830,10 @@ class Table(Vector):
 		# ----------------------------------------------------------------------
 		if apply:
 			for name, (col, fn) in apply.items():
-				if len(col) != nrows:
+				resolved_col = self._resolve_column(col)
+				if len(resolved_col) != nrows:
 					raise ValueError(f"Custom aggregation column '{name}' has wrong length")
-				data = col._underlying
+				data = resolved_col._underlying
 				gm = {
 					key: fn([data[i] for i in rows])
 					for key, rows in group_items
@@ -1880,18 +1910,10 @@ class Table(Vector):
 		nrows = len(self)
 
 		for spec in keys:
-			if isinstance(spec, Vector):
-				col = spec
-				if len(col) != nrows:
-					raise SerifValueError(
-						f"Sort key has length {len(col)}, but table has {nrows} rows"
-					)
-			elif isinstance(spec, str):
-				# Reuse existing column lookup semantics
-				col = self[spec]
-			else:
-				raise SerifTypeError(
-					f"Sort key must be Vector or str, got {type(spec).__name__}"
+			col = self._resolve_column(spec)
+			if len(col) != nrows:
+				raise SerifValueError(
+					f"Sort key has length {len(col)}, but table has {nrows} rows"
 				)
 			resolved.append(col)
 
