@@ -4,7 +4,8 @@ import re
 import math
 from builtins import isinstance as b_isinstance
 
-from .alias_tracker import _ALIAS_TRACKER, AliasError
+from .alias_tracker import _ALIAS_TRACKER
+from .alias_tracker import AliasError
 from .errors import SerifTypeError
 from .errors import SerifIndexError
 from .errors import SerifValueError
@@ -50,21 +51,21 @@ def _reverse_pow(y, x):
 # ============================================================
 
 def _is_hashable(x: Any) -> bool:
-    try:
-        hash(x)
-        return True
-    except Exception:
-        return False
+	try:
+		hash(x)
+		return True
+	except Exception:
+		return False
 
 
 def _safe_sortable_list(xs: Iterable[Any]) -> List[Any]:
-    """
-    Deterministic representation for sets in fingerprinting.
-    """
-    try:
-        return sorted(xs)
-    except Exception:
-        return sorted((repr(x) for x in xs))
+	"""
+	Deterministic representation for sets in fingerprinting.
+	"""
+	try:
+		return sorted(xs)
+	except Exception:
+		return sorted((repr(x) for x in xs))
 
 
 class MethodProxy:

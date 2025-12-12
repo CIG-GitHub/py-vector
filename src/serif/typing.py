@@ -10,8 +10,12 @@ Pure metadata design:
 
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Any, Iterable, Optional, Type
+from datetime import date
+from datetime import datetime
+from typing import Any
+from typing import Iterable
+from typing import Optional
+from typing import Type
 import warnings
 
 
