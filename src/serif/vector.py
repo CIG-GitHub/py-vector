@@ -175,6 +175,17 @@ class Vector():
 			return tuple()
 		return (len(self),)
 
+	@property
+	def name(self):
+		"""Get the name of this vector."""
+		return self._name
+	
+	@name.setter
+	def name(self, new_name):
+		"""Set the name of this vector."""
+		self._name = new_name
+		self._wild = True  # Mark as wild when renamed
+
 	#-----------------------------------------------------
 	# Fingerprinting
 	#-----------------------------------------------------
@@ -279,9 +290,32 @@ class Vector():
 		"""
 		return Vector(list(self._underlying), dtype=object, name=self._name, as_row=self._display_as_row)
 
-	def rename(self, new_name):
-		"""Rename this vector (returns self for chaining)"""
+	def alias(self, new_name):
+		"""
+		Assign a name to an unnamed vector (returns self for chaining).
+		
+		This method only works on unnamed vectors. If the vector already has a name,
+		use the .name property directly or .copy(name=...) to create a named copy.
+		"""
+		if self._name is not None:
+			raise SerifValueError(
+				"alias() is reserved for unnamed vectors only. "
+				"To rename: use .name = 'new'. "
+				"To copy with new name: use .copy(name='new')"
+			)
 		self._name = new_name
+		self._wild = True  # Mark as wild when named
+		return self
+
+	def rename(self, new_name):
+		"""Deprecated: Use .name property or .alias() for unnamed vectors."""
+		import warnings
+		warnings.warn(
+			"rename() is deprecated. Use .name = 'new' to rename, or .alias() for unnamed vectors.",
+			DeprecationWarning,
+			stacklevel=2
+		)
+		self.name = new_name
 		self._wild = True  # Mark as wild when renamed
 		return self
 	
@@ -1207,7 +1241,9 @@ class Vector():
 			# Recursive: This Matrix @ Each Column of Other
 			if hasattr(other, 'cols') and other.ndims() == 2:
 				# Returns a tuple of vectors, wrapped in a new Vector (which becomes Table)
-				return self.copy(tuple(self @ col for col in other.cols())).rename(None)
+				result = self.copy(tuple(self @ col for col in other.cols()))
+				result.name = None
+				return result
 
 			# 1b. Matrix @ Vector
 			# The "Trick": Linear Combination of Columns

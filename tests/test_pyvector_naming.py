@@ -237,4 +237,47 @@ def test_operations_create_independent_unnamed_vectors():
 	assert v2._name == "vec2"
 
 
+def test_alias_names_unnamed_vector():
+	"""Test that alias() can name an unnamed vector"""
+	v = Vector([1, 2, 3])
+	assert v._name is None
+	
+	result = v.alias("my_name")
+	assert v._name == "my_name"
+	assert result is v  # Returns self for chaining
+	assert v._wild == True  # Marks as wild
 
+
+def test_alias_fails_on_named_vector():
+	"""Test that alias() fails if vector already has a name"""
+	from serif.errors import SerifValueError
+	v = Vector([1, 2, 3], name="existing")
+	
+	with pytest.raises(SerifValueError, match="alias\\(\\) is reserved for unnamed vectors only"):
+		v.alias("new_name")
+	
+	# Name should be unchanged
+	assert v._name == "existing"
+
+
+def test_name_property_getter():
+	"""Test that .name property returns the name"""
+	v = Vector([1, 2, 3], name="test")
+	assert v.name == "test"
+	
+	v_unnamed = Vector([4, 5, 6])
+	assert v_unnamed.name is None
+
+
+def test_name_property_setter():
+	"""Test that .name property can set the name"""
+	v = Vector([1, 2, 3], name="old")
+	assert v.name == "old"
+	
+	v.name = "new"
+	assert v.name == "new"
+	assert v._wild == True
+	
+	# Can also set to None
+	v.name = None
+	assert v.name is None

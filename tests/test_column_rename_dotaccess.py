@@ -9,8 +9,8 @@ def test_stale_column_name_after_vector_rename():
 		'other': [4, 5, 6]
 	})
 	
-	# Access and rename via vector's rename method
-	t.old_name.rename('new_name')
+	# Access and rename via vector's name property
+	t.old_name.name = 'new_name'
 	
 	# Old name should raise AttributeError
 	with pytest.raises(AttributeError, match="old_name"):
@@ -27,8 +27,8 @@ def test_stale_column_name_after_multiple_renames():
 	})
 	
 	# Rename multiple times
-	t.first.rename('second')
-	t.second.rename('third')
+	t.first.name = 'second'
+	t.second.name = 'third'
 	
 	# Both old names should fail
 	with pytest.raises(AttributeError):
@@ -47,7 +47,7 @@ def test_stale_column_name_subscript_access():
 		'old': [1, 2, 3]
 	})
 	
-	t.old.rename('new')
+	t.old.name = 'new'
 	
 	# Subscript access with old name should raise KeyError
 	with pytest.raises(KeyError):
@@ -66,7 +66,7 @@ def test_multiple_columns_rename_independently():
 	})
 	
 	# Rename just 'b'
-	t.b.rename('beta')
+	t.b.name = 'beta'
 	
 	# 'a' and 'c' should still work
 	assert list(t.a) == [1, 2, 3]
@@ -81,14 +81,14 @@ def test_multiple_columns_rename_independently():
 
 
 def test_rename_then_rename_column_method():
-	"""Test interaction between vector.rename() and table.rename_column()"""
+	"""Test interaction between vector.name property and table.rename_column()"""
 	t = Table({
 		'col1': [1, 2, 3],
 		'col2': [4, 5, 6]
 	})
 	
-	# Use vector's rename
-	t.col1.rename('temp')
+	# Use vector's name property
+	t.col1.name = 'temp'
 	
 	# Now use table's rename_column on the new name
 	t.rename_column('temp', 'final')
@@ -110,7 +110,7 @@ def test_rename_case_sensitivity():
 		'lowercase': [1, 2, 3]
 	})
 	
-	t.lowercase.rename('UPPERCASE')
+	t.lowercase.name = 'UPPERCASE'
 	
 	# Old lowercase should fail
 	with pytest.raises(AttributeError):

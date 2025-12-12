@@ -116,7 +116,7 @@ t.first_name    # Vector([1, 2, 3])
 t.price         # Vector([10, 20, 30])
 
 # Add columns with >>= (recommended)
-t >>= (t.first_name * t.price).rename("total")
+t >>= (t.first_name * t.price).alias("total")
 
 t
 # 'first name'  'price ($)'  total
@@ -192,7 +192,7 @@ t = Table({'id': range(100), 'value': [x**2 for x in range(100)]})
 
 # Or compose from vectors: showcases Vector's design philosophy
 a = Vector(range(100), name='id')
-t = a >> (a**2).rename('value')
+t = a >> (a**2).alias('value')
 
 t
 # id  value
