@@ -4,6 +4,10 @@ Thanks for your interest in contributing.
 
 This project is still evolving, and the API may change. Contributions are welcome, but please open an issue or discussion before starting large changes.
 
+The templates in this repository are meant to be helpful, not restrictive.
+
+If something doesn’t fit neatly into a template, feel free to open an issue anyway. What matters most is a clear, good-faith description of the problem or use case.
+
 ## Guidelines
 
 - Keep changes focused and well-scoped.
