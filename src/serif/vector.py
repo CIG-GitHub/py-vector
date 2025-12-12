@@ -1003,7 +1003,7 @@ class Vector():
 			return Vector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
 		
 		# Iterable + Vector
-		if isinstance(other, Iterable):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			vals = []

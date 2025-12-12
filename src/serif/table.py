@@ -700,7 +700,7 @@ class Table(Vector):
 			if len(self.cols()) != len(other.cols()):
 				raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other.cols())}")
 			return Vector(tuple(op(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)), False, bool, True)
-		if isinstance(other, Iterable):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched row counts
 			if len(self) != len(other):
 				raise ValueError(f"Row count mismatch: {len(self)} != {len(other)}")
