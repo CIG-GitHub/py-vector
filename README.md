@@ -84,7 +84,6 @@ pip freeze
 - Table-owns-storage: building a table copies inputs so tables never share columns by accident
 - Controlled mutation: column vectors are live views; in-place updates mutate only that table
 - Immediate visual feedback via `__repr__`
-- Zero hidden magic
 
 ## Quickstart
 
@@ -227,7 +226,7 @@ t.c2023_q1_revenue_m  # Deterministic, predictable access
 - Leading digits get `c` prefix
 - All lowercase
 
-Unnamed columns use system names: `t.col0_`, `t.col1_`, etc.
+Unnamed columns use system names: `t.col0_`, `t.col1_`, etc. Original column names are preserved; sanitization only affects attribute access.
 
 ### Typed Subclasses
 
@@ -291,7 +290,8 @@ whichever style makes the code easiest to understand.
 
 ## Design Philosophy
 
-serif makes a **strategic choice**: clarity and workflow ergonomics over raw speed.
+serif prioritizes clarity and workflow ergonomics.
+
 
 **What you get:**
 - Readable, debuggable code
@@ -323,3 +323,7 @@ serif makes a **strategic choice**: clarity and workflow ergonomics over raw spe
 
 ## License
 MIT
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
