@@ -1,12 +1,43 @@
-import warnings
 import operator
+import warnings
+
 from .vector import Vector
-from .naming import _sanitize_user_name, _uniquify, resolve_column_name_for_binary_op
-from .errors import SerifKeyError, SerifValueError, SerifTypeError
+
+from .naming import _sanitize_user_name
+from .naming import _uniquify
+
+from .errors import SerifKeyError
+from .errors import SerifValueError
+from .errors import SerifTypeError
 
 
 def _missing_col_error(name, context="Table"):
 	return SerifKeyError(f"Column '{name}' not found in {context}")
+
+
+def _resolve_binary_name(left_name, right_name):
+	"""
+	Apply left-biased naming rules for binary operations between columns.
+	
+	Rules:
+	- If right is None or matches left: keep left (even if left is None)
+	- If left is None but right is not: drop to None, return warning info
+	- If both named but different: drop to None, return warning info
+	
+	Returns:
+		tuple: (result_name, warning_case)
+		       warning_case is None, "mismatch", or "right-named-left-unnamed"
+	"""
+	if right_name is None or right_name == left_name:
+		# Keep left name (including if left is None)
+		return (left_name, None)
+	
+	if left_name is None:
+		# Case B: left unnamed, right named
+		return (None, "right-named-left-unnamed")
+	
+	# Case A: both named but different
+	return (None, "mismatch")
 
 
 class Row(Vector):
@@ -775,7 +806,7 @@ class Table(Vector):
 			result_col = op_func(left_col, right_col)
 			
 			# Apply naming rules
-			result_name, warning_case = resolve_column_name_for_binary_op(left_col._name, right_col._name)
+			result_name, warning_case = _resolve_binary_name(left_col._name, right_col._name)
 			result_col._name = result_name
 			result_col._wild = False  # Result is tame (part of new table structure)
 			

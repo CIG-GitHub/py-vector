@@ -28,6 +28,24 @@ from typing import List
 from typing import Tuple
 
 # ============================================================
+# Reverse arithmetic operation helpers
+# ============================================================
+def _reverse_sub(y, x):
+	return x - y
+
+def _reverse_truediv(y, x):
+	return x / y
+
+def _reverse_floordiv(y, x):
+	return x // y
+
+def _reverse_mod(y, x):
+	return x % y
+
+def _reverse_pow(y, x):
+	return x ** y
+
+# ============================================================
 # Small helpers
 # ============================================================
 
@@ -309,7 +327,6 @@ class Vector():
 
 	def rename(self, new_name):
 		"""Deprecated: Use .name property or .alias() for unnamed vectors."""
-		import warnings
 		warnings.warn(
 			"rename() is deprecated. Use .name = 'new' to rename, or .alias() for unnamed vectors.",
 			DeprecationWarning,
@@ -847,7 +864,7 @@ class Vector():
 		"""Helper function to handle element-wise operations with broadcasting."""
 		other = self._check_duplicate(other)
 		
-		# CASE A: Self is 2D
+		# CASE A: Self is 2D (Table on Left)
 		# T + v -> [C1+v, C2+v, ...]
 		if self.ndims() == 2:
 			return self.copy(tuple(
@@ -856,7 +873,7 @@ class Vector():
 				for col in self.cols()
 			))
 		
-		# CASE B: Other is 2D
+		# CASE B: Other is 2D (Table on Right)
 		# v + T -> [v+C1, v+C2, ...]
 		if isinstance(other, Vector) and other.ndims() == 2:
 			return other.copy(tuple(
@@ -1000,19 +1017,19 @@ class Vector():
 		return self.__mul__(other)
 
 	def __rsub__(self, other):
-		return self._elementwise_operation(other, lambda y, x: x - y, '__rsub__', '-')
+		return self._elementwise_operation(other, _reverse_sub, '__rsub__', '-')
 
 	def __rtruediv__(self, other):
-		return self._elementwise_operation(other, lambda y, x: x / y, '__rtruediv__', '/')
+		return self._elementwise_operation(other, _reverse_truediv, '__rtruediv__', '/')
 
 	def __rfloordiv__(self, other):
-		return self._elementwise_operation(other, lambda y, x: x // y, '__rfloordiv__', '//')
+		return self._elementwise_operation(other, _reverse_floordiv, '__rfloordiv__', '//')
 
 	def __rmod__(self, other):
-		return self._elementwise_operation(other, lambda y, x: x % y, '__rmod__', '%')
+		return self._elementwise_operation(other, _reverse_mod, '__rmod__', '%')
 
 	def __rpow__(self, other):
-		return self._elementwise_operation(other, lambda y, x: x ** y, '__rpow__', '**')
+		return self._elementwise_operation(other, _reverse_pow, '__rpow__', '**')
 
 
 	def _promote(self, new_dtype):

@@ -82,26 +82,3 @@ def _uniquify(base: str, seen: set[str]) -> str:
 	return f"{base}__{i}"
 
 
-def resolve_column_name_for_binary_op(left_name, right_name):
-	"""
-	Apply left-biased naming rules for binary operations between columns.
-	
-	Rules:
-	- If right is None or matches left: keep left (even if left is None)
-	- If left is None but right is not: drop to None, return warning info
-	- If both named but different: drop to None, return warning info
-	
-	Returns:
-		tuple: (result_name, warning_case)
-		       warning_case is None, "mismatch", or "right-named-left-unnamed"
-	"""
-	if right_name is None or right_name == left_name:
-		# Keep left name (including if left is None)
-		return (left_name, None)
-	
-	if left_name is None:
-		# Case B: left unnamed, right named
-		return (None, "right-named-left-unnamed")
-	
-	# Case A: both named but different
-	return (None, "mismatch")
