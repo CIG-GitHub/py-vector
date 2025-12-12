@@ -3,6 +3,8 @@ import warnings
 import re
 import math
 from builtins import isinstance as b_isinstance
+from collections.abc import Iterator
+from collections.abc import Iterable
 
 from .alias_tracker import _ALIAS_TRACKER
 from .alias_tracker import AliasError
@@ -115,8 +117,8 @@ class Vector():
 		_precomputed_data = None
 		
 		# Check if iterable but not a reusable container (list/tuple/Vector)
-		# We check specifically for lack of __len__ as a proxy for "is this a generator?"
-		if hasattr(initial, '__iter__') and not isinstance(initial, (list, tuple, Vector)):
+		# Generators and iterators need to be materialized before dtype inference
+		if isinstance(initial, Iterator):
 			initial = tuple(initial)
 			_precomputed_data = initial
 
@@ -598,7 +600,7 @@ class Vector():
 
 		# Is the incoming value iterable?
 		is_seq_val = (
-			hasattr(value, "__iter__")
+			isinstance(value, Iterable)
 			and not isinstance(value, (str, bytes, bytearray))
 		)
 
@@ -807,7 +809,7 @@ class Vector():
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			result_values = tuple(False if (x is None or y is None) else bool(op(x, y)) for x, y in zip(self, other, strict=True))
 			return Vector(result_values, dtype=DataType(bool, nullable=False))
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
@@ -898,7 +900,7 @@ class Vector():
 							name=None,
 							as_row=self._display_as_row)
 
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			try:
@@ -991,7 +993,7 @@ class Vector():
 			return Vector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
 		
 		# Scalar + Vector
-		if not hasattr(other, "__iter__") or isinstance(other, (str, bytes, bytearray)):
+		if not isinstance(other, Iterable) or isinstance(other, (str, bytes, bytearray)):
 			vals = []
 			for x in self:
 				if x is None:
@@ -1001,7 +1003,7 @@ class Vector():
 			return Vector(vals, dtype=self._dtype, name=None, as_row=self._display_as_row)
 		
 		# Iterable + Vector
-		if hasattr(other, "__iter__"):
+		if isinstance(other, Iterable):
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
 			vals = []
@@ -1231,7 +1233,7 @@ class Vector():
 			return True
 		if dtype_kind == Vector:
 			return True
-		if not (not self._dtype.nullable or hasattr(other, '__iter__')):
+		if not (not self._dtype.nullable or isinstance(other, Iterable)):
 			return True
 		if dtype_kind == float and type(other) == int: # includes bool since isinstance(True, int) returns True
 			return True
@@ -1334,7 +1336,7 @@ class Vector():
 				raise SerifTypeError("Cannot concatenate two typesafe Vectors of different types")
 			return Vector(self._underlying + other._underlying,
 				dtype=self._dtype)
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			return Vector(self._underlying + tuple(other),
 				dtype=self._dtype)
 		return Vector(self._underlying + (other,),
@@ -1357,7 +1359,7 @@ class Vector():
 				raise SerifTypeError("Cannot concatenate two typesafe Vectors of different types")
 			return Vector((self,) + (other,),
 				dtype=self._dtype)
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			return Vector([self, Vector(tuple(x for x in other))],
 				dtype=self._dtype)
 		elif not self:
@@ -1370,7 +1372,7 @@ class Vector():
 		Handles: other << self (where other is not a Vector)
 		"""
 		# Convert other to Vector and concatenate with self
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			return Vector(tuple(other) + self._underlying,
 				None,  # other doesn't have a default element
 				None,
@@ -1387,7 +1389,7 @@ class Vector():
 		Creates a table with other as first column(s) and self as additional column(s)
 		"""
 		# Convert other to Vector and combine column-wise
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			return Vector((Vector(tuple(other)), self),
 				None,
 				None,
@@ -1688,7 +1690,7 @@ class _Date(Vector):
 				return Vector(tuple(bool(op(x, date.fromisoformat(y))) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
 			if other.schema().kind == datetime:
 				return Vector(tuple(bool(op(datetime.combine(x, datetime.time(0, 0)), y)) for x, y in zip(self, other, strict=True)), dtype=DataType(bool))
-		elif hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		elif isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			# Raise mismatched lengths
 			if len(self) != len(other):
 				raise ValueError(f"Length mismatch: {len(self)} != {len(other)}")
