@@ -1,5 +1,6 @@
 import operator
 import warnings
+from collections.abc import Iterable
 
 from .vector import Vector
 
@@ -42,12 +43,9 @@ def _resolve_binary_name(left_name, right_name):
 
 class Row(Vector):
 	"""
-	The One Row to Rule Them All.
-	
-	It behaves like a Vector (math, logic, isinstance), but it is a 
+	Row behaves like a Vector (math, logic, isinstance), but it is a 
 	zero-copy view into the Table's columns.
 	
-	PERFORMANCE NOTE:
 	We deliberately bypass Vector.__init__ to avoid O(N) scans, 
 	fingerprinting, and alias tracking during iteration.
 	"""
@@ -617,7 +615,7 @@ class Table(Vector):
 		
 		# CASE A: Scalar Assignment (Broadcast)
 		# t[0:5, 'A'] = 10
-		if not hasattr(value, '__iter__') or isinstance(value, (str, bytes)):
+		if not isinstance(value, Iterable) or isinstance(value, (str, bytes, bytearray)):
 			for col_idx in target_indices:
 				self._underlying[col_idx][row_spec] = value
 			return
@@ -702,7 +700,7 @@ class Table(Vector):
 			if len(self.cols()) != len(other.cols()):
 				raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other.cols())}")
 			return Vector(tuple(op(x, y) for x, y in zip(self.cols(), other.cols(), strict=True)), False, bool, True)
-		if hasattr(other, '__iter__'):
+		if isinstance(other, Iterable):
 			# Raise mismatched row counts
 			if len(self) != len(other):
 				raise ValueError(f"Row count mismatch: {len(self)} != {len(other)}")
@@ -723,7 +721,7 @@ class Table(Vector):
 				# Convert to Vector if needed
 				if isinstance(values, Vector):
 					col = values.copy()  # Copy to prevent aliasing
-				elif hasattr(values, "__iter__") and not isinstance(values, (str, bytes)):
+				elif isinstance(values, Iterable) and not isinstance(values, (str, bytes, bytearray)):
 					col = Vector(values)
 				else:
 					# Reject scalars - user must be explicit
@@ -755,7 +753,7 @@ class Table(Vector):
 			# Adding a column to a table - tables can have mixed-type columns
 			return Vector(self.cols() + (other,),
 				dtype=self._dtype)
-		if hasattr(other, '__iter__') and not isinstance(other, (str, bytes, bytearray)):
+		if isinstance(other, Iterable) and not isinstance(other, (str, bytes, bytearray)):
 			# Convert iterable to Vector and add as column (let Vector infer dtype)
 			return Vector(self.cols() + (Vector(other),),
 				dtype=self._dtype)
