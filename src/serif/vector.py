@@ -847,7 +847,7 @@ class Vector():
 		"""Helper function to handle element-wise operations with broadcasting."""
 		other = self._check_duplicate(other)
 		
-		# CASE A: Self is 2D (Table on Left)
+		# CASE A: Self is 2D
 		# T + v -> [C1+v, C2+v, ...]
 		if self.ndims() == 2:
 			return self.copy(tuple(
@@ -856,7 +856,7 @@ class Vector():
 				for col in self.cols()
 			))
 		
-		# CASE B: Other is 2D (Table on Right)
+		# CASE B: Other is 2D
 		# v + T -> [v+C1, v+C2, ...]
 		if isinstance(other, Vector) and other.ndims() == 2:
 			return other.copy(tuple(

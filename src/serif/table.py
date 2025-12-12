@@ -1,6 +1,7 @@
 import warnings
+import operator
 from .vector import Vector
-from .naming import _sanitize_user_name, _uniquify
+from .naming import _sanitize_user_name, _uniquify, resolve_column_name_for_binary_op
 from .errors import SerifKeyError, SerifValueError, SerifTypeError
 
 
@@ -743,6 +744,79 @@ class Table(Vector):
 		if len(self.cols()) != len(other):
 			raise ValueError(f"Column count mismatch: {len(self.cols())} != {len(other)}")
 		return Vector(tuple(x << y for x, y in zip(self.cols(), other, strict=True)))
+
+	def _table_elementwise_operation(self, other, op_func, op_name: str, op_symbol: str):
+		"""
+		Handle Table-specific arithmetic with column name preservation.
+		
+		Rules:
+		- Table + scalar: preserve all column names
+		- Table + Table: left-biased naming with warnings for mismatches
+		"""		
+		# Scalar operation: preserve all column names
+		if not isinstance(other, Table):
+			result_cols = tuple(
+				op_func(col, other) for col in self.cols()
+			)
+			# Restore original column names
+			for orig_col, result_col in zip(self.cols(), result_cols):
+				result_col._name = orig_col._name
+				result_col._wild = orig_col._wild
+			return Table(result_cols)
+		
+		# Table + Table: left-biased naming with warnings
+		if len(self.cols()) != len(other.cols()):
+			raise ValueError(f"Table width mismatch: {len(self.cols())} != {len(other.cols())}")
+		
+		result_cols = []
+		warnings_to_emit = []
+		
+		for idx, (left_col, right_col) in enumerate(zip(self.cols(), other.cols())):
+			result_col = op_func(left_col, right_col)
+			
+			# Apply naming rules
+			result_name, warning_case = resolve_column_name_for_binary_op(left_col._name, right_col._name)
+			result_col._name = result_name
+			result_col._wild = False  # Result is tame (part of new table structure)
+			
+			# Track warnings
+			if warning_case is not None:
+				warnings_to_emit.append((idx, left_col._name, right_col._name, warning_case))
+			
+			result_cols.append(result_col)
+		
+		# Emit consolidated warning if needed
+		if warnings_to_emit:
+			lines = [f"Table operation ({op_symbol}) produced unusual column naming in {len(warnings_to_emit)} column(s):"]
+			for idx, left_name, right_name, case in warnings_to_emit:
+				if case == "mismatch":
+					lines.append(f"  idx {idx}: left={repr(left_name)} right={repr(right_name)} → dropped")
+				else:  # right-named-left-unnamed
+					lines.append(f"  idx {idx}: left=None right={repr(right_name)} → kept None (left-biased)")
+			warnings.warn("\n".join(lines), UserWarning, stacklevel=2)
+		
+		return Table(tuple(result_cols))
+	
+	def __add__(self, other):
+		return self._table_elementwise_operation(other, operator.add, '__add__', '+')
+	
+	def __sub__(self, other):
+		return self._table_elementwise_operation(other, operator.sub, '__sub__', '-')
+	
+	def __mul__(self, other):
+		return self._table_elementwise_operation(other, operator.mul, '__mul__', '*')
+	
+	def __truediv__(self, other):
+		return self._table_elementwise_operation(other, operator.truediv, '__truediv__', '/')
+	
+	def __floordiv__(self, other):
+		return self._table_elementwise_operation(other, operator.floordiv, '__floordiv__', '//')
+	
+	def __mod__(self, other):
+		return self._table_elementwise_operation(other, operator.mod, '__mod__', '%')
+	
+	def __pow__(self, other):
+		return self._table_elementwise_operation(other, operator.pow, '__pow__', '**')
 
 	@staticmethod
 	def _validate_key_tuple_hashable(key_tuple, key_cols, row_idx):
