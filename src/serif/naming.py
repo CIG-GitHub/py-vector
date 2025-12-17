@@ -63,22 +63,13 @@ def _sanitize_user_name(name) -> str | None:
 	if sanitized[0].isdigit():
 		sanitized = "c" + sanitized
 	
+	# If name looks like indexed accessor pattern (name__digits), append _ to disambiguate
+	if re.match(r'^.+__\d+$', sanitized):
+		sanitized = sanitized + '_'
+	
 	# Conflicts with reserved name → append _
 	if sanitized in _get_reserved_names():
 		sanitized = sanitized + '_'
 	
 	return sanitized
-
-
-def _uniquify(base: str, seen: set[str]) -> str:
-	"""Make a unique name by adding __2, __3, etc if needed."""
-	if base not in seen:
-		return base
-	
-	i = 2
-	while f"{base}__{i}" in seen:
-		i += 1
-	
-	return f"{base}__{i}"
-
 
